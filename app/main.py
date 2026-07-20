@@ -43,11 +43,13 @@ from app.routes import predict as predict_routes  # noqa: E402
 from app.routes import upload as upload_routes  # noqa: E402
 from app.routes import retrain as retrain_routes  # noqa: E402
 from app.routes import rollback as rollback_routes  # noqa: E402
+from app.routes import insights as insights_routes  # noqa: E402
 
 app.include_router(predict_routes.router)
 app.include_router(upload_routes.router)
 app.include_router(retrain_routes.router)
 app.include_router(rollback_routes.router)
+app.include_router(insights_routes.router)
 
 
 @app.get("/", response_class=HTMLResponse)

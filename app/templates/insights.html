@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block title %}Insights &mdash; DR Detection{% endblock %}
+
+{% block content %}
+<section class="page-head">
+  <h1>Data &amp; Model Insights</h1>
+  <p class="muted">Training-pool composition, the original APTOS class balance,
+    baseline model performance, and the full version history.</p>
+</section>
+
+<div class="stat-row" id="stat-row"></div>
+
+<div class="grid-2">
+  <div class="card">
+    <h3>Class Distribution (% of each dataset)</h3>
+    <p class="muted">Normalised so the APTOS set (3,662 images) and the training
+      pool are comparable. Highlights the grade imbalance in the source data.</p>
+    <div class="chart-wrap"><canvas id="dist-chart"></canvas></div>
+  </div>
+
+  <div class="card">
+    <h3>Baseline Model Performance</h3>
+    <p class="muted" id="metrics-source"></p>
+    <div class="metric-grid" id="metric-grid"></div>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Model Version History</h3>
+  <div class="table-scroll">
+    <table class="count-table" id="history-table">
+      <thead><tr>
+        <th>Version</th><th>Type</th><th>Samples</th><th>Accuracy</th>
+        <th>Created</th><th>Status</th><th></th>
+      </tr></thead>
+      <tbody id="history-body"></tbody>
+    </table>
+  </div>
+  <div id="rollback-msg" class="upload-msg" hidden></div>
+  <div id="rollback-err" class="error-box" hidden></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let distChart = null;
+let activeVersion = null;
+
+async function load() {
+  const r = await fetch('/api/insights');
+  const d = await r.json();
+  activeVersion = d.model.active_version;
+  renderStats(d);
+  renderDist(d);
+  renderMetrics(d.baseline_metrics);
+  renderHistory(d.history, d.model.active_version);
+}
+
+function renderStats(d) {
+  const el = document.getElementById('stat-row');
+  el.innerHTML = `
+    <div class="stat"><span class="stat-num">${d.model.active_version}</span>
+      <span class="stat-label">Active version</span></div>
+    <div class="stat"><span class="stat-num">${d.model.retrain_count}</span>
+      <span class="stat-label">Retrains</span></div>
+    <div class="stat"><span class="stat-num">${d.totals.user_uploads}</span>
+      <span class="stat-label">Your uploads</span></div>
+    <div class="stat"><span class="stat-num">${d.totals.seed_buffer}</span>
+      <span class="stat-label">Seed buffer</span></div>`;
+}
+
+function toPct(arr) {
+  const t = arr.reduce((a, b) => a + b, 0) || 1;
+  return arr.map(v => +(100 * v / t).toFixed(1));
+}
+
+function renderDist(d) {
+  const ds = d.distributions;
+  const sets = [
+    { label: 'APTOS (original)', data: toPct(ds.aptos_original), color: '#2f80ed' },
+    { label: 'Seed buffer', data: toPct(ds.seed_buffer), color: '#56ccf2' },
+  ];
+  if (d.totals.user_uploads > 0)
+    sets.push({ label: 'Your uploads', data: toPct(ds.user_uploads), color: '#27ae60' });
+
+  if (distChart) distChart.destroy();
+  distChart = new Chart(document.getElementById('dist-chart'), {
+    type: 'bar',
+    data: { labels: d.class_labels,
+      datasets: sets.map(s => ({ label: s.label, data: s.data, backgroundColor: s.color })) },
+    options: {
+      responsive: true,
+      plugins: { legend: { labels: { color: '#9fb3c8' } } },
+      scales: { y: { beginAtZero: true, ticks: { color: '#9fb3c8',
+                     callback: v => v + '%' } },
+                x: { ticks: { color: '#9fb3c8' } } }
+    }
+  });
+}
+
+function renderMetrics(m) {
+  document.getElementById('metrics-source').textContent = m.source;
+  const items = [
+    ['Quadratic Weighted Kappa', m.quadratic_weighted_kappa],
+    ['Accuracy', m.accuracy],
+    ['AUC', m.auc],
+    ['Grade 3+4 Recall', m.grade_3_4_recall],
+  ];
+  document.getElementById('metric-grid').innerHTML = items.map(([k, v]) =>
+    `<div class="metric"><span class="metric-val">${v}</span>
+       <span class="metric-key">${k}</span></div>`).join('');
+}
+
+function renderHistory(history, active) {
+  document.getElementById('history-body').innerHTML = history.slice().reverse().map(h => {
+    const isActive = h.version === active;
+    const acc = h.final_accuracy != null ? (h.final_accuracy * 100).toFixed(1) + '%' : '—';
+    const created = h.created_at ? new Date(h.created_at).toLocaleString() : '—';
+    const btn = isActive
+      ? '<span class="badge-active">Active</span>'
+      : `<button class="btn-small" onclick="rollback('${h.version}')">Rollback</button>`;
+    return `<tr>
+      <td><code>${h.version}</code></td><td>${h.type}</td>
+      <td>${h.samples_trained_on ?? '—'}</td><td>${acc}</td>
+      <td>${created}</td>
+      <td>${isActive ? '<span class="dot-active"></span> serving' : ''}</td>
+      <td>${btn}</td></tr>`;
+  }).join('');
+}
+
+async function rollback(version) {
+  const msg = document.getElementById('rollback-msg');
+  const err = document.getElementById('rollback-err');
+  msg.hidden = true; err.hidden = true;
+  try {
+    const r = await fetch('/api/rollback/' + encodeURIComponent(version), { method: 'POST' });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || 'Rollback failed.');
+    msg.textContent = j.message; msg.hidden = false;
+    await load();
+  } catch (e) {
+    err.textContent = e.message; err.hidden = false;
+  }
+}
+
+load();
+</script>
+{% endblock %}
