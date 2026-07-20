@@ -40,8 +40,10 @@ app.mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="stati
 
 # Routers
 from app.routes import predict as predict_routes  # noqa: E402
+from app.routes import upload as upload_routes  # noqa: E402
 
 app.include_router(predict_routes.router)
+app.include_router(upload_routes.router)
 
 
 @app.get("/", response_class=HTMLResponse)

@@ -130,6 +130,27 @@ code { background: var(--card-2); padding: 0.1rem 0.4rem; border-radius: 4px; co
   color: #ff8a80; padding: 0.9rem 1rem; border-radius: 8px;
 }
 
+/* ---- Form fields ---- */
+.field-label { display: block; margin: 1rem 0 0.4rem; font-weight: 600; font-size: 0.9rem; }
+.select {
+  width: 100%; padding: 0.7rem 0.8rem; border-radius: 8px;
+  background: var(--card-2); color: var(--text); border: 1px solid var(--border);
+  font-size: 1rem;
+}
+.select:focus { outline: none; border-color: var(--accent); }
+.upload-msg {
+  margin-top: 1rem; padding: 0.8rem 1rem; border-radius: 8px;
+  background: rgba(46, 125, 50, 0.18); border: 1px solid #2e7d32; color: #a5d6a7;
+}
+
+/* ---- Count table ---- */
+.count-table { width: 100%; border-collapse: collapse; margin-top: 0.8rem; }
+.count-table th, .count-table td {
+  text-align: left; padding: 0.55rem 0.6rem; border-bottom: 1px solid var(--border);
+}
+.count-table th { color: var(--muted); font-weight: 600; font-size: 0.85rem; }
+.count-table tfoot td { border-bottom: none; padding-top: 0.8rem; }
+
 /* ---- Footer ---- */
 .footer {
   display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;
