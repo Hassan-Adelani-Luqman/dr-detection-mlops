@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.env
+*.log
+
+# Root-level source artifacts (copied into models/ and notebooks/; do not double-commit)
+/exp5_deep_cnn.keras
+/diabetic_retinopathy_detection.ipynb
+
+# Runtime-generated data
+data/uploads/*
+!data/uploads/.gitkeep
+data/app.db
+
+# Runtime-generated models (regenerated from exp5_base.keras at startup)
+models/exp5_current.keras
+models/exp5_staging.keras
+models/versions/*.keras
+models/model_registry.json
+
+# Test data (APTOS images not redistributable — see README)
+tests/sample_images/*
+!tests/sample_images/.gitkeep
+
+# NOTE: models/exp5_base.keras IS committed (needed for deployment).

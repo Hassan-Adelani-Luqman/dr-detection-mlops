@@ -1,0 +1,29 @@
+# Version control / IDE
+.git/
+.gitignore
+.dockerignore
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.env
+*.log
+
+# Not needed in the image (keeps build context small)
+tests/
+notebooks/
+*.md
+scripts/
+
+# Runtime data — mounted via volumes, not baked in
+data/uploads/*
+data/app.db
+models/exp5_current.keras
+models/exp5_staging.keras
+models/versions/*.keras
+models/model_registry.json
+
+# Root-level source duplicates
+/exp5_deep_cnn.keras
+/diabetic_retinopathy_detection.ipynb
