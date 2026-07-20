@@ -3,21 +3,48 @@
 
 {% block content %}
 <section class="hero">
+  <span class="pill">Active model: <code>{{ active_version }}</code></span>
   <h1>Diabetic Retinopathy Detection</h1>
-  <p class="lead">An MLOps deployment that grades retinal fundus images, accepts
-    new labelled data, and retrains on demand &mdash; supporting scalable DR
-    screening across Africa.</p>
-  <p class="muted">Active model version: <code>{{ active_version }}</code></p>
+  <p class="lead">An MLOps deployment that grades retinal fundus images across
+    five severity levels, accepts new labelled data from the field, and retrains
+    on demand &mdash; built to support scalable, accessible diabetic retinopathy
+    screening across Africa, where specialist ophthalmologists are scarce.</p>
 </section>
 
 <div class="grid-cards">
-  <a class="feature-card" href="/predict"><h3>Predict</h3>
-    <p class="muted">Grade a fundus image with per-class confidence.</p></a>
-  <a class="feature-card" href="/upload"><h3>Upload</h3>
-    <p class="muted">Contribute labelled images to the training pool.</p></a>
-  <a class="feature-card" href="/retrain"><h3>Retrain</h3>
-    <p class="muted">Fine-tune a new model version from uploads.</p></a>
-  <a class="feature-card" href="/insights"><h3>Insights</h3>
-    <p class="muted">Explore dataset distribution and model history.</p></a>
+  <a class="feature-card" href="/predict">
+    <h3>&#128065;&nbsp; Predict</h3>
+    <p class="muted">Upload a fundus image and get its DR grade (0&ndash;4) with
+      per-class confidence and a clinical action note.</p>
+  </a>
+  <a class="feature-card" href="/upload">
+    <h3>&#8593;&nbsp; Upload</h3>
+    <p class="muted">Contribute labelled images to the training pool, stored in
+      the database for future retraining.</p>
+  </a>
+  <a class="feature-card" href="/retrain">
+    <h3>&#8635;&nbsp; Retrain</h3>
+    <p class="muted">Fine-tune a new model version from the pool using the active
+      model as a pre-trained base. The original is never overwritten.</p>
+  </a>
+  <a class="feature-card" href="/insights">
+    <h3>&#128202;&nbsp; Insights</h3>
+    <p class="muted">Explore dataset distribution, baseline metrics, and the full
+      model version history &mdash; with one-click rollback.</p>
+  </a>
 </div>
+
+<section class="how-it-works card">
+  <h3>How retraining works</h3>
+  <ol class="steps">
+    <li><strong>Collect</strong> &mdash; labelled fundus images are uploaded and
+      saved to the database, joining a balanced replay buffer.</li>
+    <li><strong>Preprocess</strong> &mdash; each image is converted to the exact
+      format the model was trained on (RGB, 224&times;224, normalised).</li>
+    <li><strong>Fine-tune</strong> &mdash; the convolutional backbone is frozen
+      and only the classifier head is trained, keeping retraining fast on CPU.</li>
+    <li><strong>Version &amp; promote</strong> &mdash; a new versioned model is
+      saved and promoted to active; any prior version can be restored.</li>
+  </ol>
+</section>
 {% endblock %}
