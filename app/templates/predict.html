@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}Predict &mdash; DR Detection{% endblock %}
+
+{% block content %}
+<section class="page-head">
+  <h1>Grade a Fundus Image</h1>
+  <p class="muted">Upload a retinal fundus photograph to predict its diabetic
+    retinopathy grade (0&ndash;4) with per-class confidence.</p>
+</section>
+
+<div class="grid-2">
+  <div class="card">
+    <form id="predict-form">
+      <label id="dropzone" class="dropzone" for="file-input">
+        <input type="file" id="file-input" name="file" accept="image/*" hidden>
+        <div id="dz-prompt">
+          <span class="dz-icon">&#8593;</span>
+          <p><strong>Drag &amp; drop</strong> a fundus image here</p>
+          <p class="muted">or click to browse (JPEG / PNG)</p>
+        </div>
+        <img id="preview" alt="preview" hidden>
+      </label>
+      <button type="submit" id="predict-btn" class="btn btn-primary" disabled>
+        Predict Grade
+      </button>
+    </form>
+  </div>
+
+  <div class="card" id="result-card" hidden>
+    <div id="loading" class="loading" hidden>
+      <span class="spinner"></span> Analysing image&hellip;
+    </div>
+    <div id="result" hidden>
+      <div class="grade-badge" id="grade-badge">
+        <span id="grade-num"></span>
+        <span id="grade-label"></span>
+      </div>
+      <p class="confidence-line">Top confidence:
+        <strong id="confidence-val"></strong></p>
+      <div class="clinical-note" id="clinical-note"></div>
+      <div class="chart-wrap">
+        <canvas id="conf-chart"></canvas>
+      </div>
+      <p class="muted version-line">Served by model version:
+        <code id="version"></code></p>
+    </div>
+    <div id="error" class="error-box" hidden></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const form = document.getElementById('predict-form');
+const fileInput = document.getElementById('file-input');
+const dropzone = document.getElementById('dropzone');
+const preview = document.getElementById('preview');
+const dzPrompt = document.getElementById('dz-prompt');
+const predictBtn = document.getElementById('predict-btn');
+const resultCard = document.getElementById('result-card');
+const loading = document.getElementById('loading');
+const resultBox = document.getElementById('result');
+const errorBox = document.getElementById('error');
+let chart = null;
+
+function showFile(file) {
+  if (!file) return;
+  preview.src = URL.createObjectURL(file);
+  preview.hidden = false;
+  dzPrompt.hidden = true;
+  predictBtn.disabled = false;
+}
+
+fileInput.addEventListener('change', () => showFile(fileInput.files[0]));
+
+['dragover', 'dragenter'].forEach(ev =>
+  dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.add('drag'); }));
+['dragleave', 'drop'].forEach(ev =>
+  dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.remove('drag'); }));
+dropzone.addEventListener('drop', e => {
+  const f = e.dataTransfer.files[0];
+  if (f) { fileInput.files = e.dataTransfer.files; showFile(f); }
+});
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!fileInput.files[0]) return;
+  resultCard.hidden = false;
+  resultBox.hidden = true;
+  errorBox.hidden = true;
+  loading.hidden = false;
+  predictBtn.disabled = true;
+
+  const data = new FormData();
+  data.append('file', fileInput.files[0]);
+  try {
+    const resp = await fetch('/api/predict', { method: 'POST', body: data });
+    const json = await resp.json();
+    if (!resp.ok) throw new Error(json.detail || 'Prediction failed.');
+    renderResult(json);
+  } catch (err) {
+    errorBox.textContent = err.message;
+    errorBox.hidden = false;
+  } finally {
+    loading.hidden = true;
+    predictBtn.disabled = false;
+  }
+});
+
+function renderResult(r) {
+  const badge = document.getElementById('grade-badge');
+  badge.style.background = r.grade_color;
+  document.getElementById('grade-num').textContent = 'Grade ' + r.predicted_grade;
+  document.getElementById('grade-label').textContent = r.grade_label;
+  document.getElementById('confidence-val').textContent =
+    (r.confidence * 100).toFixed(1) + '%';
+  document.getElementById('clinical-note').textContent = r.clinical_note;
+  document.getElementById('version').textContent = r.active_version;
+
+  const labels = Object.keys(r.confidence_scores);
+  const values = Object.values(r.confidence_scores).map(v => v * 100);
+  if (chart) chart.destroy();
+  chart = new Chart(document.getElementById('conf-chart'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Confidence (%)',
+        data: values,
+        backgroundColor: ['#2e7d32', '#f9a825', '#ef6c00', '#c62828', '#7b1fa2'],
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true, max: 100, ticks: { color: '#9fb3c8' } },
+                x: { ticks: { color: '#9fb3c8' } } }
+    }
+  });
+  resultBox.hidden = false;
+}
+</script>
+{% endblock %}

@@ -1,0 +1,143 @@
+:root {
+  --bg: #0d1b2a;
+  --bg-2: #14243a;
+  --card: #16283f;
+  --card-2: #1c3350;
+  --border: #24405f;
+  --text: #e6eef7;
+  --muted: #9fb3c8;
+  --accent: #2f80ed;
+  --accent-hover: #1f6fd6;
+  --danger: #c62828;
+  --radius: 12px;
+  --shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  background: linear-gradient(160deg, var(--bg), var(--bg-2));
+  color: var(--text);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---- Top bar ---- */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.9rem 1.5rem;
+  background: rgba(10, 20, 33, 0.85);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  backdrop-filter: blur(6px);
+}
+.brand { display: flex; align-items: center; gap: 0.6rem; }
+.logo { font-size: 1.5rem; }
+.brand-name { font-weight: 700; font-size: 1.15rem; color: var(--text); text-decoration: none; }
+.brand-sub {
+  font-size: 0.65rem; font-weight: 600; margin-left: 0.4rem;
+  color: var(--accent); letter-spacing: 0.08em; text-transform: uppercase;
+  vertical-align: super;
+}
+.nav { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+.nav a {
+  color: var(--muted); text-decoration: none; padding: 0.45rem 0.85rem;
+  border-radius: 8px; font-weight: 500; transition: all 0.15s;
+}
+.nav a:hover { color: var(--text); background: var(--card-2); }
+
+/* ---- Layout ---- */
+.container { flex: 1; width: 100%; max-width: 1100px; margin: 0 auto; padding: 2rem 1.5rem; }
+.page-head { margin-bottom: 1.5rem; }
+.page-head h1, .hero h1 { margin: 0 0 0.4rem; font-size: 1.8rem; }
+.muted { color: var(--muted); }
+.lead { font-size: 1.1rem; max-width: 640px; }
+
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
+.grid-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 1.5rem; }
+
+.card {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 1.4rem; box-shadow: var(--shadow);
+}
+
+.hero { text-align: center; padding: 2rem 0 1rem; }
+.hero .lead { margin: 0 auto 0.8rem; }
+
+.feature-card {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 1.3rem; text-decoration: none;
+  color: var(--text); transition: transform 0.15s, border-color 0.15s;
+}
+.feature-card:hover { transform: translateY(-3px); border-color: var(--accent); }
+.feature-card h3 { margin: 0 0 0.4rem; }
+
+/* ---- Dropzone ---- */
+.dropzone {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  border: 2px dashed var(--border); border-radius: var(--radius);
+  padding: 2rem 1rem; min-height: 220px; cursor: pointer; text-align: center;
+  transition: border-color 0.15s, background 0.15s;
+}
+.dropzone:hover, .dropzone.drag { border-color: var(--accent); background: var(--card-2); }
+.dz-icon { font-size: 2rem; display: block; }
+#preview { max-width: 100%; max-height: 260px; border-radius: 8px; }
+
+/* ---- Buttons ---- */
+.btn {
+  display: inline-block; width: 100%; margin-top: 1rem; padding: 0.8rem 1rem;
+  border: none; border-radius: 8px; font-size: 1rem; font-weight: 600;
+  cursor: pointer; transition: background 0.15s;
+}
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ---- Result ---- */
+.grade-badge {
+  display: flex; flex-direction: column; align-items: center; gap: 0.2rem;
+  padding: 1.1rem; border-radius: var(--radius); color: #fff; font-weight: 700;
+  margin-bottom: 1rem;
+}
+.grade-badge #grade-num { font-size: 1.6rem; }
+.grade-badge #grade-label { font-size: 1rem; font-weight: 600; opacity: 0.95; }
+.confidence-line { margin: 0.3rem 0 0.8rem; }
+.clinical-note {
+  background: var(--card-2); border-left: 3px solid var(--accent);
+  padding: 0.8rem 1rem; border-radius: 6px; margin-bottom: 1rem; line-height: 1.5;
+}
+.chart-wrap { margin-top: 0.5rem; }
+.version-line { margin-top: 1rem; font-size: 0.85rem; }
+code { background: var(--card-2); padding: 0.1rem 0.4rem; border-radius: 4px; color: var(--accent); }
+
+/* ---- States ---- */
+.loading { display: flex; align-items: center; gap: 0.6rem; color: var(--muted); }
+.spinner {
+  width: 18px; height: 18px; border: 3px solid var(--border);
+  border-top-color: var(--accent); border-radius: 50%;
+  animation: spin 0.8s linear infinite; display: inline-block;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.error-box {
+  background: rgba(198, 40, 40, 0.15); border: 1px solid var(--danger);
+  color: #ff8a80; padding: 0.9rem 1rem; border-radius: 8px;
+}
+
+/* ---- Footer ---- */
+.footer {
+  display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;
+  padding: 1.2rem 1.5rem; border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 0.85rem;
+}
+
+@media (max-width: 760px) {
+  .grid-2 { grid-template-columns: 1fr; }
+  .topbar { flex-direction: column; gap: 0.6rem; align-items: flex-start; }
+}

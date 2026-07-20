@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}DR Detection MLOps{% endblock %}
+
+{% block content %}
+<section class="hero">
+  <h1>Diabetic Retinopathy Detection</h1>
+  <p class="lead">An MLOps deployment that grades retinal fundus images, accepts
+    new labelled data, and retrains on demand &mdash; supporting scalable DR
+    screening across Africa.</p>
+  <p class="muted">Active model version: <code>{{ active_version }}</code></p>
+</section>
+
+<div class="grid-cards">
+  <a class="feature-card" href="/predict"><h3>Predict</h3>
+    <p class="muted">Grade a fundus image with per-class confidence.</p></a>
+  <a class="feature-card" href="/upload"><h3>Upload</h3>
+    <p class="muted">Contribute labelled images to the training pool.</p></a>
+  <a class="feature-card" href="/retrain"><h3>Retrain</h3>
+    <p class="muted">Fine-tune a new model version from uploads.</p></a>
+  <a class="feature-card" href="/insights"><h3>Insights</h3>
+    <p class="muted">Explore dataset distribution and model history.</p></a>
+</div>
+{% endblock %}

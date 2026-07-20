@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}DR Detection MLOps{% endblock %}</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">&#128065;</span>
+      <a href="/" class="brand-name">DR&nbsp;Detection<span class="brand-sub">MLOps</span></a>
+    </div>
+    <nav class="nav">
+      <a href="/" data-nav="home">Home</a>
+      <a href="/predict" data-nav="predict">Predict</a>
+      <a href="/upload" data-nav="upload">Upload</a>
+      <a href="/retrain" data-nav="retrain">Retrain</a>
+      <a href="/insights" data-nav="insights">Insights</a>
+    </nav>
+  </header>
+
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="footer">
+    <span>Diabetic Retinopathy Detection &mdash; MLOps deployment</span>
+    <span class="muted">Screening aid only &mdash; not a substitute for clinical diagnosis.</span>
+  </footer>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>
