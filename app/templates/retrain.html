@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}Retrain &mdash; DR Detection{% endblock %}
+
+{% block content %}
+<section class="page-head">
+  <h1>Retrain the Model</h1>
+  <p class="muted">Fine-tune the classifier head on the current training pool
+    (seed replay buffer + your uploads) using the active model as a pre-trained
+    base. The convolutional backbone stays frozen, so training completes in
+    minutes. A new versioned model is created &mdash; the original is never
+    overwritten.</p>
+</section>
+
+<div class="card">
+  <button id="start-btn" class="btn btn-primary" style="max-width:260px">
+    Start Retraining
+  </button>
+  <div id="status-line" class="status-line" hidden></div>
+  <div id="error" class="error-box" hidden></div>
+</div>
+
+<div class="card" id="progress-card" hidden>
+  <h3>Training Progress</h3>
+  <div class="progress-track"><div id="progress-bar" class="progress-bar"></div></div>
+  <table class="count-table" id="epoch-table">
+    <thead><tr><th>Epoch</th><th>Loss</th><th>Accuracy</th>
+      <th>Val loss</th><th>Val acc</th></tr></thead>
+    <tbody id="epoch-body"></tbody>
+  </table>
+</div>
+
+<div class="card" id="done-card" hidden>
+  <h3>Retraining Complete</h3>
+  <div id="done-body"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const startBtn = document.getElementById('start-btn');
+const statusLine = document.getElementById('status-line');
+const errorBox = document.getElementById('error');
+const progressCard = document.getElementById('progress-card');
+const progressBar = document.getElementById('progress-bar');
+const epochBody = document.getElementById('epoch-body');
+const doneCard = document.getElementById('done-card');
+const doneBody = document.getElementById('done-body');
+let poll = null;
+
+startBtn.addEventListener('click', async () => {
+  errorBox.hidden = true; doneCard.hidden = true; epochBody.innerHTML = '';
+  progressBar.style.width = '0%';
+  startBtn.disabled = true;
+  statusLine.hidden = false;
+  statusLine.textContent = 'Starting retraining…';
+  try {
+    const resp = await fetch('/api/retrain', { method: 'POST' });
+    const json = await resp.json();
+    if (!resp.ok) throw new Error(json.detail || 'Could not start retraining.');
+    progressCard.hidden = false;
+    poll = setInterval(checkStatus, 3000);
+    checkStatus();
+  } catch (err) {
+    errorBox.textContent = err.message; errorBox.hidden = false;
+    statusLine.hidden = true; startBtn.disabled = false;
+  }
+});
+
+async function checkStatus() {
+  const resp = await fetch('/api/retrain/status');
+  const s = await resp.json();
+  if (s.total_epochs) {
+    statusLine.textContent =
+      `Training… epoch ${s.current_epoch} / ${s.total_epochs}`;
+    progressBar.style.width =
+      Math.round((s.current_epoch / s.total_epochs) * 100) + '%';
+  }
+  renderEpochs(s.logs || []);
+  if (s.status === 'complete') { stopPoll(); renderDone(s.result); }
+  else if (s.status === 'error') {
+    stopPoll();
+    errorBox.textContent = s.error || 'Retraining failed.'; errorBox.hidden = false;
+    statusLine.hidden = true; startBtn.disabled = false;
+  }
+}
+
+function renderEpochs(logs) {
+  epochBody.innerHTML = logs.map(l =>
+    `<tr><td>${l.epoch}</td><td>${l.loss}</td><td>${l.accuracy}</td>
+     <td>${l.val_loss}</td><td>${l.val_accuracy}</td></tr>`).join('');
+}
+
+function renderDone(r) {
+  statusLine.hidden = true;
+  progressBar.style.width = '100%';
+  startBtn.disabled = false;
+  doneCard.hidden = false;
+  doneBody.innerHTML = `
+    <p><strong>Model updated to <code>${r.version}</code></strong></p>
+    <ul class="done-list">
+      <li>Trained on <strong>${r.samples}</strong> images
+          (${r.n_train} train / ${r.n_val} val)</li>
+      <li>Epochs run: ${r.epochs_run}</li>
+      <li>Final accuracy: ${(r.final_accuracy * 100).toFixed(1)}%
+          (val ${(r.final_val_accuracy * 100).toFixed(1)}%)</li>
+      <li>Final loss: ${r.final_loss}</li>
+    </ul>
+    <p class="muted">This version is now serving predictions. View it in
+       <a href="/insights">Insights</a>.</p>`;
+}
+
+function stopPoll() { if (poll) { clearInterval(poll); poll = null; } }
+</script>
+{% endblock %}
