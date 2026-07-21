@@ -67,7 +67,12 @@ GRADE_COLORS = {
 # Retraining (tuned in Part A of the plan to avoid catastrophic forgetting)
 # --------------------------------------------------------------------------- #
 FREEZE_CUTOFF = 30                # freeze layers[:FREEZE_CUTOFF+1] (verified Phase 0.5)
-MIN_SAMPLES = 20                  # refuse to retrain below this many images
+# Minimum images required to retrain. Kept low (5) so the public demo can
+# retrain on a handful of images uploaded live, since the APTOS replay buffer
+# cannot be redistributed to the hosted environment. Locally, the seeded buffer
+# (~200 images) means retraining trains on far more than this floor. The low LR
+# and frozen backbone keep even a tiny retrain from collapsing the model.
+MIN_SAMPLES = int(os.getenv("MIN_SAMPLES", "5"))
 RETRAIN_EPOCHS = 8
 RETRAIN_BATCH_SIZE = 8
 RETRAIN_LR = 1e-5                 # low LR: fine-tune the head without wrecking it

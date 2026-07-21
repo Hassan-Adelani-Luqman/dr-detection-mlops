@@ -1,0 +1,18 @@
+# Render deployment config (ALTERNATIVE target).
+#
+# Primary deployment is Hugging Face Spaces (Docker SDK) — see README.
+# Render's free tier provides only 512 MB RAM, which is likely to be OOM-killed
+# during retraining given the ~2.3 GB TensorFlow image's memory footprint.
+# Prediction-only use may fit, but retraining is not reliable here. Documented
+# as a fallback; upgrade to a paid instance (>= 2 GB RAM) for stable retraining.
+#
+# Render injects the PORT env var and the Dockerfile CMD binds to it.
+services:
+  - type: web
+    name: dr-detection-mlops
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: "8000"
