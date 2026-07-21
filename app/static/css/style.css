@@ -15,6 +15,11 @@
 
 * { box-sizing: border-box; }
 
+/* The `hidden` attribute must always win over class-based display rules
+   (e.g. .loading{display:flex}), otherwise toggled elements like the loading
+   spinner stay visible after JS sets element.hidden = true. */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
