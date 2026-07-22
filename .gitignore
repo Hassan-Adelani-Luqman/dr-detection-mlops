@@ -24,4 +24,7 @@ models/model_registry.json
 tests/sample_images/*
 !tests/sample_images/.gitkeep
 
+# Local demo images (APTOS — not redistributable)
+demo_images/
+
 # NOTE: models/exp5_base.keras IS committed (needed for deployment).

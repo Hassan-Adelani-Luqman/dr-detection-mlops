@@ -76,7 +76,9 @@ async def api_upload(
     dest = UPLOADS_DIR / stored_name
     dest.write_bytes(data)
 
-    row = UploadedImage(filename=safe, image_path=str(dest),
+    # Store the filename only (not an absolute path) so the training pool is
+    # portable across host/container. Files are resolved under UPLOADS_DIR.
+    row = UploadedImage(filename=safe, image_path=stored_name,
                         grade_label=grade_label, source="user")
     db.add(row)
     db.commit()

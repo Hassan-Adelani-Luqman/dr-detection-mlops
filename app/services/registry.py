@@ -40,7 +40,8 @@ def init_registry() -> dict:
             raise FileNotFoundError(
                 f"Base model not found at {BASE_MODEL_PATH}. Cannot initialise."
             )
-        shutil.copy2(BASE_MODEL_PATH, CURRENT_MODEL_PATH)
+        # copyfile (not copy2): avoid EPERM from metadata copy on bind mounts.
+        shutil.copyfile(BASE_MODEL_PATH, CURRENT_MODEL_PATH)
 
     if not REGISTRY_PATH.exists():
         registry = {

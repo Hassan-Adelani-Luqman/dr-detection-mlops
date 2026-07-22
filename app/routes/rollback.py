@@ -42,7 +42,8 @@ async def api_rollback(version: str):
             detail=f"Model file for {version} is not available on disk.",
         )
 
-    shutil.copy2(source, CURRENT_MODEL_PATH)
+    # copyfile (not copy2): avoid EPERM from metadata copy on bind mounts.
+    shutil.copyfile(source, CURRENT_MODEL_PATH)
     set_active_version(version)
     model_service.reload_model()
 

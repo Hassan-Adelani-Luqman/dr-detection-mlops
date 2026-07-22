@@ -20,9 +20,12 @@ from datetime import datetime, timezone
 import numpy as np
 import tensorflow as tf
 
+from pathlib import Path
+
 from app.config import (CURRENT_MODEL_PATH, EARLY_STOP_PATIENCE, FREEZE_CUTOFF,
                         MIN_SAMPLES, RETRAIN_BATCH_SIZE, RETRAIN_EPOCHS,
-                        RETRAIN_LR, STAGING_MODEL_PATH, VERSIONS_DIR)
+                        RETRAIN_LR, STAGING_MODEL_PATH, UPLOADS_DIR,
+                        VERSIONS_DIR)
 from app.database.models import UploadedImage
 from app.services import model_service
 from app.services.preprocess import preprocess_image
@@ -68,8 +71,18 @@ def build_dataset(db_session, batch_size: int = RETRAIN_BATCH_SIZE):
     X, y = [], []
     skipped = 0
     for r in rows:
+        # image_path may be an absolute path recorded in another environment
+        # (e.g. seeded on the Windows host, then read inside the Linux
+        # container). Resolve by filename under the current uploads dir so the
+        # training pool is portable across host/container. Split on BOTH
+        # separators: a PosixPath does not treat "\" as a separator, so a stored
+        # Windows path would otherwise yield the whole string as the "name".
+        path = Path(r.image_path)
+        if not path.exists():
+            base = r.image_path.replace("\\", "/").rsplit("/", 1)[-1]
+            path = UPLOADS_DIR / base
         try:
-            X.append(preprocess_image(r.image_path))
+            X.append(preprocess_image(path))
             y.append(r.grade_label)
         except (ValueError, FileNotFoundError):
             skipped += 1
@@ -152,9 +165,12 @@ def run_retraining(db_session, epochs: int = RETRAIN_EPOCHS,
                f"{now.strftime('%Y%m%d_%H%M%S')}")
     versioned_path = VERSIONS_DIR / f"{version}.keras"
 
-    model.save(STAGING_MODEL_PATH)                    # transient write target
-    shutil.copy2(STAGING_MODEL_PATH, versioned_path)  # permanent snapshot
-    shutil.copy2(versioned_path, CURRENT_MODEL_PATH)  # promote to active
+    # Use copyfile (data only) not copy2: copy2 also copies permissions/times,
+    # which fails with EPERM on Windows->Linux Docker bind mounts. Model files
+    # do not need metadata preserved.
+    model.save(STAGING_MODEL_PATH)                       # transient write target
+    shutil.copyfile(STAGING_MODEL_PATH, versioned_path)  # permanent snapshot
+    shutil.copyfile(versioned_path, CURRENT_MODEL_PATH)  # promote to active
     STAGING_MODEL_PATH.unlink(missing_ok=True)
 
     # 5. Update registry.

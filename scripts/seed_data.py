@@ -96,8 +96,9 @@ def seed(aptos_dir: Path, per_grade: int, force: bool, seed_val: int,
                 ext = Path(src).suffix or ".png"
                 stored = f"seed_{uuid.uuid4().hex[:8]}{ext}"
                 dest = UPLOADS_DIR / stored
-                shutil.copy2(src, dest)
-                db.add(UploadedImage(filename=Path(src).name, image_path=str(dest),
+                shutil.copyfile(src, dest)
+                # Store filename only (portable across host/container).
+                db.add(UploadedImage(filename=Path(src).name, image_path=stored,
                                      grade_label=grade, source="seed"))
                 first_per_grade.setdefault(grade, src)
                 total += 1
@@ -111,7 +112,7 @@ def seed(aptos_dir: Path, per_grade: int, force: bool, seed_val: int,
             test_samples_dir.mkdir(parents=True, exist_ok=True)
             for grade, src in first_per_grade.items():
                 ext = Path(src).suffix or ".png"
-                shutil.copy2(src, test_samples_dir / f"grade_{grade}{ext}")
+                shutil.copyfile(src, test_samples_dir / f"grade_{grade}{ext}")
             print(f"Copied {len(first_per_grade)} sample images to "
                   f"{test_samples_dir} (gitignored).")
     finally:
