@@ -198,6 +198,28 @@ code { background: var(--card-2); padding: 0.1rem 0.4rem; border-radius: 4px; co
 .dot-active { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
   background: #2e7d32; margin-right: 0.3rem; }
 
+/* ---- Model status (header pill + Insights card) ---- */
+.status-pill {
+  display: inline-flex; align-items: center; gap: 0.45rem;
+  padding: 0.35rem 0.8rem; border-radius: 999px; font-size: 0.82rem;
+  background: var(--card-2); border: 1px solid var(--border);
+  color: var(--muted); text-decoration: none; white-space: nowrap;
+}
+.status-pill:hover { color: var(--text); border-color: var(--accent); }
+.status-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+.status-dot.ok { background: #43a047; box-shadow: 0 0 0 3px rgba(67, 160, 71, 0.25); }
+.status-dot.warn { background: #f9a825; }
+.status-dot.down { background: var(--danger); }
+#model-status { margin-bottom: 1.25rem; }
+#model-status h3 { margin-top: 0; }
+.status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.8rem; margin-top: 0.6rem; }
+.status-item { background: var(--card-2); border-radius: 8px; padding: 0.75rem 0.9rem;
+  display: flex; flex-direction: column; }
+.status-val { font-size: 1.05rem; font-weight: 700; color: var(--text); word-break: break-word; }
+.status-key { color: var(--muted); font-size: 0.78rem; margin-top: 0.15rem; }
+.small { font-size: 0.8rem; font-weight: 400; }
+
 /* ---- Footer ---- */
 .footer {
   display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;

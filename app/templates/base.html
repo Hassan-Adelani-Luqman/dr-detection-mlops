@@ -20,6 +20,11 @@
       <a href="/retrain" data-nav="retrain">Retrain</a>
       <a href="/insights" data-nav="insights">Insights</a>
     </nav>
+    <a href="/insights#model-status" class="status-pill" id="status-pill"
+       title="Model service status (from /health)">
+      <span class="status-dot" id="status-dot"></span>
+      <span id="status-text">Checking…</span>
+    </a>
   </header>
 
   <main class="container">
@@ -43,6 +48,47 @@
           a.classList.add('active');
         }
       });
+    })();
+  </script>
+  <script>
+    // Model up-time pill: polls /health every 15 s and ticks the uptime
+    // forward every second in between.
+    (function () {
+      const dot = document.getElementById('status-dot');
+      const text = document.getElementById('status-text');
+      let base = null;   // { uptime: seconds, at: ms timestamp, version }
+
+      function fmt(s) {
+        s = Math.floor(s);
+        const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600),
+              m = Math.floor(s % 3600 / 60), sec = s % 60;
+        if (d) return `${d}d ${h}h`;
+        if (h) return `${h}h ${m}m`;
+        if (m) return `${m}m ${sec}s`;
+        return `${sec}s`;
+      }
+      function render() {
+        if (!base) return;
+        const up = base.uptime + (Date.now() - base.at) / 1000;
+        text.textContent = `Online · up ${fmt(up)} · ${base.version}`;
+      }
+      async function poll() {
+        try {
+          const r = await fetch('/health', { cache: 'no-store' });
+          if (!r.ok) throw new Error(r.status);
+          const h = await r.json();
+          base = { uptime: h.uptime_seconds, at: Date.now(), version: h.active_version };
+          dot.className = 'status-dot ' + (h.model_loaded ? 'ok' : 'warn');
+          render();
+        } catch (e) {
+          base = null;
+          dot.className = 'status-dot down';
+          text.textContent = 'Offline';
+        }
+      }
+      poll();
+      setInterval(poll, 15000);
+      setInterval(render, 1000);
     })();
   </script>
   {% block scripts %}{% endblock %}

@@ -20,7 +20,7 @@ templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
 
 @router.get("/insights", response_class=HTMLResponse)
 async def insights_page(request: Request):
-    return templates.TemplateResponse("insights.html", {"request": request})
+    return templates.TemplateResponse(request, "insights.html")
 
 
 @router.get("/api/insights")

@@ -18,22 +18,38 @@ from src.config import SPLIT_SEED, TARGET_SIZE, TEST_SIZE, VAL_SIZE
 PathLike = Union[str, Path]
 
 
+def _prepare(img_bgr: np.ndarray, target_size: tuple) -> np.ndarray:
+    """BGR uint8 image -> (H, W, 3) float32 RGB in [0, 1] at ``target_size``."""
+    img = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+    # cv2.resize takes (width, height); target_size is (height, width).
+    img = cv2.resize(img, (target_size[1], target_size[0]))
+    return img.astype(np.float32) / 255.0
+
+
 def preprocess_image(path: PathLike, target_size: tuple = TARGET_SIZE) -> np.ndarray:
-    """Load one image as a (H, W, 3) float32 RGB array scaled to [0, 1].
+    """Load one image file as a (H, W, 3) float32 RGB array scaled to [0, 1].
 
     Raises ValueError if the file cannot be read as an image.
     """
     img = cv2.imread(str(path))
     if img is None:
         raise ValueError(f"Could not read image: {path}")
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    # cv2.resize takes (width, height); target_size is (height, width).
-    img = cv2.resize(img, (target_size[1], target_size[0]))
-    return img.astype(np.float32) / 255.0
+    return _prepare(img, target_size)
+
+
+def preprocess_image_bytes(data: bytes, target_size: tuple = TARGET_SIZE) -> np.ndarray:
+    """Same as :func:`preprocess_image`, for an image already in memory (an upload).
+
+    Raises ValueError if the bytes cannot be decoded as an image.
+    """
+    img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+    if img is None:
+        raise ValueError("Could not decode the uploaded file as an image.")
+    return _prepare(img, target_size)
 
 
 def preprocess_batch(path: PathLike, target_size: tuple = TARGET_SIZE) -> np.ndarray:
-    """Preprocess one image and add the batch dimension -> (1, H, W, 3)."""
+    """Preprocess one image file and add the batch dimension -> (1, H, W, 3)."""
     return np.expand_dims(preprocess_image(path, target_size), axis=0)
 
 

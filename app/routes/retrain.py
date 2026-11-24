@@ -51,7 +51,7 @@ def _run():
 
 @router.get("/retrain", response_class=HTMLResponse)
 async def retrain_page(request: Request):
-    return templates.TemplateResponse("retrain.html", {"request": request})
+    return templates.TemplateResponse(request, "retrain.html")
 
 
 @router.post("/api/retrain")

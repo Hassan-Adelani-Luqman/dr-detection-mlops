@@ -18,12 +18,10 @@ from app.config import APP_DIR, CLASS_LABELS, UPLOADS_DIR
 from app.database.db import get_db
 from app.database.models import UploadedImage
 from app.services.pool import counts_by_grade
+from app.utils.validation import read_image_upload
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
-
-MAX_BYTES = 10 * 1024 * 1024  # 10 MB
-_IMAGE_MAGIC = (b"\xff\xd8\xff", b"\x89PNG\r\n\x1a\n", b"BM")
 
 
 def _safe_name(filename: str) -> str:
@@ -40,14 +38,15 @@ def _counts_by_grade(db: Session) -> dict:
 @router.get("/upload", response_class=HTMLResponse)
 async def upload_page(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(
+        request,
         "upload.html",
-        {"request": request, "labels": CLASS_LABELS,
+        {"labels": CLASS_LABELS,
          "counts": _counts_by_grade(db)},
     )
 
 
 @router.post("/api/upload")
-async def api_upload(
+def api_upload(
     file: UploadFile = File(...),
     grade_label: int = Form(...),
     db: Session = Depends(get_db),
@@ -55,15 +54,7 @@ async def api_upload(
     if grade_label not in CLASS_LABELS:
         raise HTTPException(status_code=400,
                             detail="grade_label must be an integer 0–4.")
-    if file.content_type and not file.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="Uploaded file is not an image.")
-
-    data = await file.read()
-    if len(data) > MAX_BYTES:
-        raise HTTPException(status_code=400, detail="Image exceeds 10 MB limit.")
-    if not any(data.startswith(sig) for sig in _IMAGE_MAGIC):
-        raise HTTPException(status_code=400,
-                            detail="File is not a valid image (JPEG/PNG/BMP).")
+    data = read_image_upload(file)
 
     safe = _safe_name(file.filename)
     stored_name = f"{uuid.uuid4().hex[:8]}_{safe}"

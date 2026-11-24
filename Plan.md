@@ -254,42 +254,54 @@ at `v1_base` serves the measured metrics and predicts the held-out demo images c
 
 ## Phase 3 — Stop inference blocking the server; add uptime and monitoring  (P0, ~3 h) — G5, G6
 
-**Status:** ☐ not started
+**Status:** ☑ done 2026-11-24
 
-- [ ] 3.1 Keep inference off the event loop. Change `api_predict`, `api_upload` and
-  `api_rollback` from `async def` to plain `def`, so FastAPI runs them in its threadpool;
-  read uploads with `file.file.read()`. The model lock stays: it is deliberate, and it
-  limits each container to one inference at a time, which is exactly what the load test
-  in Phase 4 measures.
-- [ ] 3.2 Move the image magic-byte and size checks into `app/utils/validation.py`, shared
-  by predict and upload. Add a 10 MB limit to predict.
-- [ ] 3.3 Keep every container on the right model version. `model_service` remembers
-  `_loaded_version`. On each predict, if the registry's `active_version` differs, it
-  reloads under the lock. This keeps all replicas in sync after a retrain or rollback.
-- [ ] 3.4 New `app/services/monitor.py`:
-  - `STARTED_AT` is set in `lifespan`. It counts requests, predictions and errors, and keeps
-    the last 1000 prediction latencies (a `deque`).
-  - `snapshot()` returns `uptime_seconds`, `started_at`, `hostname` (the container id),
-    `active_version`, `model_loaded`, `predictions_served`, `latency_ms`
-    (mean, p50, p95), `retrain_count` and `last_retrained`.
-  - A middleware adds the response headers `X-Served-By: <hostname>` and
-    `X-Process-Time-ms`. Phase 4 uses these to prove the load is spread across containers.
-- [ ] 3.5 API: extend `/health` with `uptime_seconds` and `hostname`; add `GET /api/status`
-  returning the full snapshot.
-- [ ] 3.6 UI:
-  - **A status pill in the header of every page** (`base.html`). It polls `/health` every
-    15 s and shows "● Online · up 2h 14m · v1_base", or a red "Offline" when the call fails.
-  - **A "Model status" card at the top of Insights**: uptime, start time, active version,
-    predictions served, mean and p95 latency, which container answered, last retrained.
-- [ ] 3.7 Tests:
-  - `/health` has `uptime_seconds >= 0`.
-  - `/api/status` returns all its keys.
-  - The `X-Served-By` header is present.
-  - After one predict, `predictions_served` goes up.
+- [x] 3.1 `api_predict`, `api_upload` and `api_rollback` are now plain `def`, so they run
+  in FastAPI's thread pool. The model lock stays: one inference at a time per process,
+  which is what Phase 4 scales out with containers.
+  - Extra: uploads are decoded **in memory** with the new
+    `src.preprocessing.preprocess_image_bytes`, so there is no temporary file. A test
+    checks the result is identical to reading the file.
+- [x] 3.2 `app/utils/validation.py` provides `read_image_upload()`, shared by predict and
+  upload. It checks the content type and magic bytes, and enforces a 10 MB limit by
+  reading at most limit + 1 bytes.
+- [x] 3.3 `model_service` tags the cached model with `_loaded_version`. Before each
+  inference, if the registry's active version differs (another replica retrained or rolled
+  back), it reloads under the lock. Predictions report the version that actually served
+  them.
+- [x] 3.4 `app/services/monitor.py`:
+  - Start time (set in `lifespan`), counts of requests, 5xx errors and predictions, and the
+    last 1000 prediction latencies (server-side, including any wait for the lock).
+  - `snapshot()` adds mean, p50, p95 and max latency, and `format_duration()`.
+  - The middleware in `main.py` records every request and adds `X-Served-By: <hostname>`
+    and `X-Process-Time-ms`.
+- [x] 3.5 New `app/routes/status.py`:
+  - `/health` (moved from `main.py`) adds `uptime_seconds`, `started_at` and `hostname`.
+  - New `/api/status` returns the full snapshot plus `loaded_version` and `last_retrained`.
+- [x] 3.6 UI:
+  - **A status pill in the header of every page** shows "● Online · up 3m 12s · v1_base".
+    It polls `/health` every 15 s, ticks every second in between, and turns red "Offline"
+    when unreachable.
+  - **A "Model status" card at the top of Insights** shows status, up-time, serving
+    version, predictions served, mean and p95 latency, requests served, server errors,
+    last retrained, the container name and the start time. It refreshes every 10 s.
+  - The inline JavaScript passes `node --check`.
+- [x] 3.7 `tests/test_status.py` (8 tests): uptime, status fields, the `X-Served-By`
+  header, the prediction counter and latency, the 10 MB limit, reloading on a version
+  change, `format_duration`, and that every page has the pill.
+  - Also fixed: the page routes used Starlette's deprecated
+    `TemplateResponse(name, {"request": …})` signature, which produced 6 warnings once
+    pages were rendered in tests. They now use `TemplateResponse(request, name, …)`.
 
-**Done when:** you fire 20 predictions in parallel
-(`seq 20 | xargs -P 20 -I{} curl -s -F file=@demo_images/... localhost:8000/api/predict`)
-and `curl localhost:8000/health` still answers in under 200 ms, with uptime visible in the UI.
+**Done when** (measured with 20 parallel `/api/predict` calls on the grade-3 demo image):
+
+| | `/health` latency during the burst | 20 predictions finished in |
+|---|---|---|
+| Before (`async def`) | 290–1,520 ms | 6.3 s |
+| After (`def` + in-memory decode) | **1.5–5 ms** | **4.7 s** |
+
+`pytest` → 40 passed. The pill and the status card render; `/api/status` reports the
+counters.
 **Commit:** `feat: add uptime and monitoring status; serve inference off the event loop`
 
 ---

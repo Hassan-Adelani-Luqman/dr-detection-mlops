@@ -30,7 +30,7 @@ def _version_source_path(version: str):
 
 
 @router.post("/api/rollback/{version}")
-async def api_rollback(version: str):
+def api_rollback(version: str):
     # Must be a version the registry knows about.
     if find_version(version) is None:
         raise HTTPException(status_code=404, detail=f"Unknown version: {version}")

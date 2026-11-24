@@ -8,6 +8,12 @@
     baseline model performance, and the full version history.</p>
 </section>
 
+<div class="card" id="model-status">
+  <h3>Model status <span class="muted small">(live, refreshes every 10 s)</span></h3>
+  <div class="status-grid" id="status-grid"><span class="muted">Loading…</span></div>
+  <p class="muted small" id="status-foot"></p>
+</div>
+
 <div class="stat-row" id="stat-row"></div>
 
 <div class="grid-2">
@@ -159,6 +165,36 @@ async function rollback(version) {
   }
 }
 
+async function loadStatus() {
+  const grid = document.getElementById('status-grid');
+  try {
+    const r = await fetch('/api/status', { cache: 'no-store' });
+    const s = await r.json();
+    const lat = s.prediction_latency_ms;
+    const ms = v => (v == null ? '—' : `${Math.round(v)} ms`);
+    const items = [
+      ['Status', s.model_loaded ? '● Online' : '● Model not loaded'],
+      ['Up-time', s.uptime],
+      ['Serving version', s.loaded_version || s.active_version],
+      ['Predictions served', s.predictions_served],
+      ['Latency mean / p95', `${ms(lat.mean)} / ${ms(lat.p95)}`],
+      ['Requests served', s.requests_served],
+      ['Server errors', s.server_errors],
+      ['Last retrained', s.last_retrained ? new Date(s.last_retrained).toLocaleString() : 'never'],
+    ];
+    grid.innerHTML = items.map(([k, v]) =>
+      `<div class="status-item"><span class="status-val">${v}</span>
+         <span class="status-key">${k}</span></div>`).join('');
+    document.getElementById('status-foot').textContent =
+      `Container ${s.hostname} · started ${new Date(s.started_at).toLocaleString()}` +
+      (lat.window ? ` · latency over the last ${lat.window} predictions (server-side)` : '');
+  } catch (e) {
+    grid.innerHTML = '<span class="error-box">Status unavailable — the service may be down.</span>';
+  }
+}
+
 load();
+loadStatus();
+setInterval(loadStatus, 10000);
 </script>
 {% endblock %}

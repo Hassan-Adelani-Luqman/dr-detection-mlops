@@ -14,7 +14,7 @@ from src.config import (CLASS_LABELS, DEFAULT_MODEL_PATH, FREEZE_CUTOFF,
 from src.model import compute_metrics, freeze_backbone, load_model
 from src.prediction import format_prediction, main, predict_image, predict_proba
 from src.preprocessing import (load_labels, preprocess_batch, preprocess_image,
-                               stratified_split)
+                               preprocess_image_bytes, stratified_split)
 
 APTOS_CSV = REPO_ROOT / "data" / "raw" / "train.csv"
 RESULT_KEYS = {"predicted_grade", "grade_label", "clinical_note",
@@ -43,6 +43,17 @@ def test_preprocess_image_converts_bgr_to_rgb(tmp_path):
 
 def test_preprocess_batch_adds_batch_dimension(synthetic_image):
     assert preprocess_batch(synthetic_image).shape == (1, *TARGET_SIZE, 3)
+
+
+def test_preprocess_bytes_matches_file(synthetic_image):
+    """Uploads are decoded from memory; the result must equal reading the file."""
+    from_bytes = preprocess_image_bytes(synthetic_image.read_bytes())
+    np.testing.assert_array_equal(from_bytes, preprocess_image(synthetic_image))
+
+
+def test_preprocess_bytes_rejects_garbage():
+    with pytest.raises(ValueError):
+        preprocess_image_bytes(b"\x89PNG\r\n\x1a\n but not really a png")
 
 
 def test_preprocess_image_rejects_non_image(tmp_path):
