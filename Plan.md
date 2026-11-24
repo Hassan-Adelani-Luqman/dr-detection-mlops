@@ -379,46 +379,54 @@ counters.
 
 ## Phase 5 — Dataset insights: at least 3 features, each with an interpretation  (P0, ~4 h) — G8
 
-**Status:** ☐ not started
+**Status:** ☑ done 2026-11-24
 
-- [ ] 5.1 `scripts/compute_dataset_insights.py --aptos-dir data/raw --out app/static/data/dataset_insights.json`
-  - For every image (3,662 of them, using `multiprocessing.Pool(4)`, about 5 min):
-    width, height, megapixels, aspect ratio, whether it is square, and inside the fundus
-    mask (grey > 10): brightness, contrast (standard deviation), and mean R, G and B.
-    Also sharpness (Laplacian variance at 512 px).
-  - Group by grade: count, median, Q1, Q3, P5, P95, the share of square images, and the
-    Spearman correlation of each feature with grade.
-  - **Commit the JSON.** It is a few KB and contains no images, so the Insights page also
-    works on Render.
-- [ ] 5.2 Insights gets a new **"Dataset features — what the data tells us"** section with
-  4 cards, each holding a Chart.js chart and a short "What it tells us" paragraph:
-  1. **Class balance.** Keep the existing chart and add the imbalance ratio (Grade 0 :
-     Grade 3 = 1805 : 193 ≈ 9.4 : 1). The story: the majority class dominates, which is why
-     class weights were used and why Grade 3/4 recall is the hard part.
-  2. **Image resolution and shape by grade**: a bar of median megapixels plus a bar of the
-     share of square images. In the probe (80 per grade), Grade 0 had a median of
-     **1.1 MP and 46% square images**, against **4.2–5.1 MP and at most 6% square** for
-     Grades 1–4. The story: an **acquisition bias** (different clinics or cameras). The
-     model can learn this shortcut, which fits Grade 0 being predicted at about 100%
-     confidence while Grades 1–4 are poorly separated.
-  3. **Brightness and contrast by grade**: the median as a point plus an IQR floating bar
-     (Chart.js `[q1, q3]` bar data). In the probe, Grade 0 images were brighter (≈95 vs
-     83–87) and higher-contrast (≈18.6 vs 14–16). The story: also tied to how images were
-     captured, which motivates normalisation such as the notebook's Ben Graham experiment.
-  4. **Colour channels by grade**: grouped R, G and B means. In the probe the green channel
-     was lower in DR grades (≈82 vs 67–73). The story: green carries the vessel and lesion
-     contrast that graders rely on.
+- [x] 5.1 `scripts/compute_dataset_insights.py` measures all 3,662 images with
+  `Pool(4)` in about 4 min.
+  - Features: size (width, height, megapixels, aspect, square) and, inside the fundus
+    mask (grey > 10): brightness, contrast, mean R, G and B, plus sharpness (Laplacian
+    variance at 512 px) and fundus fraction.
+  - Per grade: n, mean, median, Q1, Q3, P5 and P95, plus the share of square images and
+    each feature's Spearman ρ with grade.
+  - Output: `app/static/data/dataset_insights.json` (11 KB, committed, so it works on
+    Render).
+- [x] 5.2 Insights has a new **"Dataset features — what the data tells us"** section with a
+  story paragraph and 4 cards, each with a "What it tells us" interpretation written from
+  the full-dataset numbers:
+  1. **Class balance**: the existing pool chart restyled. 49% No DR, 9.4 : 1 against
+     Severe, grades 3 + 4 only 13%. Ties to class weights and the 0.39 Grade 3+4 recall.
+  2. **Resolution and shape**: megapixels (middle-50% band + median) and the % square.
+     Grade 0 is 1.1 MP and 50% square, grades 1–4 are 4.2–5.1 MP and 1–5% square,
+     ρ = +0.61 (the strongest link). Interpreted as an acquisition difference, i.e. a
+     possible shortcut.
+  3. **Brightness and contrast**: two range charts. Grade 0 is 96 vs 83–87 for
+     brightness and 18.0 vs 14.1–16.2 for contrast (ρ −0.31). The bands overlap heavily,
+     so this is capture conditions, which motivates illumination normalisation.
+  4. **Green channel**: a range chart plus a median R/G/B table. 82 vs 66–72, but it does
+     not keep falling with severity, so it separates "some DR vs none", not severity.
+     Blue shows no trend.
+  - Charts:
+    - Colours: the validated dark-mode palette slots, checked against the real card
+      surface `#16283f` (all checks pass). Each pool keeps its own colour.
+    - Marks: bars ≤ 24 px with 4 px rounded ends, median dots with a surface ring, and
+      two-line grade labels that are never slanted.
+    - Hover tooltips with image counts, and a legend on every multi-series chart.
+  - A collapsible **data table** lists every feature's median by grade plus ρ (the
+    text view of the charts).
+  - Also: the metric cards are renamed "Deployed Model Performance" and laid out in one
+    row of 5.
+- [x] 5.3 Empty pools were already hidden in Phase 2; the chart colours now follow the
+  pool, not its position.
+- [x] 5.4 `/api/insights` returns `dataset_features`. New `tests/test_insights.py` (3
+  tests) checks the JSON has ≥ 3 features with 5 grades each, that Q1 ≤ median ≤ Q3 and
+  the counts sum to 3,662, that the API serves it, and that the page has the 6 canvases,
+  4 interpretations and no unfilled placeholders.
+- [x] Also: a README **"Dataset insights"** section (summary table plus the story),
+  ahead of Phase 10.
 
-  The probe numbers above come from a sample. **Write the final text from the
-  full-dataset JSON.** Put each interpretation in the template, not the JSON, so it is easy
-  to edit.
-- [ ] 5.3 Hide the "Seed buffer" and "Your uploads" series when they are empty. On Render
-  they currently draw as rows of zeros.
-- [ ] 5.4 `/api/insights` returns `dataset_features`. Test that it has at least 3 features
-  and that the JSON file exists.
-
-**Done when:** Insights shows 4 feature charts with interpretations, both locally and on
-Render.
+**Done when** (checked): `pytest` → 44 passed; the page JavaScript passes `node --check`;
+headless-Chrome screenshots show every chart rendering, plus the up-time pill and the
+status card.
 **Commit:** `feat: dataset feature visualisations with interpretations on Insights`
 
 ---

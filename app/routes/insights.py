@@ -1,15 +1,18 @@
-"""Insights routes: dataset distribution, model metrics, and version history.
+"""Insights routes: dataset features, model metrics, and version history.
 
 Satisfies the "data insights based on the dataset" part of the deployment
-criterion. The distribution chart contrasts the training pool with the original
-APTOS class balance, exposing the imbalance the model was trained on.
+criterion and the brief's "interpret at least 3 features" requirement: the
+page charts class balance, image resolution and shape, brightness and contrast,
+and the green channel by grade (precomputed by
+scripts/compute_dataset_insights.py), each with a written interpretation.
 """
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
-from app.config import APP_DIR, APTOS_DISTRIBUTION, CLASS_LABELS, load_baseline_metrics
+from app.config import (APP_DIR, APTOS_DISTRIBUTION, CLASS_LABELS,
+                        load_baseline_metrics, load_dataset_insights)
 from app.database.db import get_db
 from app.services.pool import counts_by_grade
 from app.services.registry import get_registry
@@ -46,6 +49,7 @@ async def api_insights(db: Session = Depends(get_db)):
             "aptos_original": sum(APTOS_DISTRIBUTION.values()),
         },
         "baseline_metrics": load_baseline_metrics(),
+        "dataset_features": load_dataset_insights(),
         "model": {
             "active_version": registry["active_version"],
             "retrain_count": registry["retrain_count"],

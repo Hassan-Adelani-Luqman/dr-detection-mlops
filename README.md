@@ -231,6 +231,35 @@ sleep when idle; the first request after inactivity takes 30–60 s.
 
 ---
 
+## Dataset insights
+
+The **Insights** page charts four features of the 3,662 labelled APTOS 2019
+images by grade, each with a written interpretation. The numbers come from
+`scripts/compute_dataset_insights.py`, which writes
+`app/static/data/dataset_insights.json` (committed, so the charts also work on
+the hosted app).
+
+| Feature | Grade 0 (No DR) | Grades 1–4 | Link with grade (Spearman ρ) |
+|---|---|---|---|
+| Share of the dataset | 49% (1,805 images) | 10% / 27% / 5% / 8% | — |
+| Resolution (median megapixels) | 1.1 | 4.2–5.1 | +0.61 |
+| Exactly square images | 50% | 1–5% | — |
+| Brightness inside the retina (median, 0–255) | 96 | 83–87 | −0.16 |
+| Contrast inside the retina (median std) | 18.0 | 14.1–16.2 | −0.31 |
+| Green channel (median, 0–255) | 82 | 66–72 | −0.18 |
+| Sharpness (variance of Laplacian) | 97 | 89–96 | −0.03 |
+
+**The story.** The labels are heavily imbalanced (9.4 : 1 between No DR and
+Severe), and the photographs differ by grade in ways that have more to do with
+how they were taken than with disease. Healthy eyes are mostly small, square,
+brighter images; the disease grades are mostly larger 4:3 images. Resolution is
+the feature most strongly linked to grade, which points to an acquisition
+difference (camera or clinic) that a model can use as a shortcut. That fits the
+measured behaviour: 89% recall on No DR but poor separation of grades 1–4. The
+green channel, where lesions show the most contrast, is darker in every disease
+grade but does not keep falling with severity, and sharpness shows no trend, so
+image quality is not what separates the grades.
+
 ## Flood Request Simulation (Locust) — Results
 
 **Setup.** [Locust](https://locust.io) (`loadtest/locustfile.py`) simulates users

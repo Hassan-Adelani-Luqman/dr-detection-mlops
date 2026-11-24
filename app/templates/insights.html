@@ -4,8 +4,9 @@
 {% block content %}
 <section class="page-head">
   <h1>Data &amp; Model Insights</h1>
-  <p class="muted">Training-pool composition, the original APTOS class balance,
-    baseline model performance, and the full version history.</p>
+  <p class="muted">Live model status, what the APTOS 2019 images look like grade
+    by grade, the deployed model's measured performance, and the full version
+    history.</p>
 </section>
 
 <div class="card" id="model-status">
@@ -16,19 +17,98 @@
 
 <div class="stat-row" id="stat-row"></div>
 
-<div class="grid-2">
-  <div class="card">
-    <h3>Class Distribution (% of each dataset)</h3>
-    <p class="muted">Normalised so the APTOS set (3,662 images) and the local
-      pools are comparable. Highlights the grade imbalance in the source data.</p>
-    <div class="chart-wrap"><canvas id="dist-chart"></canvas></div>
+<section class="features-head">
+  <h2>Dataset features &mdash; what the data tells us</h2>
+  <p class="story">The labels are imbalanced, and the photographs differ by grade in ways that
+    have more to do with <em>how they were taken</em> than with disease: healthy
+    (grade&nbsp;0) eyes are mostly small, square, brighter images, while the disease
+    grades are mostly larger 4:3 images. A model can pick these cues up as shortcuts,
+    which fits what we measured: it recognises &ldquo;No DR&rdquo; with 89% recall but
+    separates the four disease grades poorly. Colour carries a weaker, more plausible
+    disease signal in the green channel, and sharpness shows no trend, so image
+    quality is not what sets the grades apart.</p>
+  <p class="muted small" id="features-source"></p>
+</section>
+
+<div class="grid-2 features">
+  <div class="card feature-card-insight">
+    <h3>1 &middot; Class balance</h3>
+    <p class="muted small">Share of images in each grade, per pool (% of that pool).</p>
+    <div class="chart-wrap"><canvas id="dist-chart" role="img"
+      aria-label="Bar chart of the share of images per grade in APTOS and the local pools"></canvas></div>
+    <p class="insight"><strong>What it tells us.</strong> Almost half of APTOS (1,805 of 3,662 images, 49%) is grade&nbsp;0,
+      while Severe has only 193 images (5%), a 9.4&nbsp;:&nbsp;1 imbalance; the
+      sight-threatening grades 3 and 4 together are just 13%. The model therefore sees
+      fewest examples of exactly the cases that matter most, which is why the notebook
+      uses class weights and why Grade 3+4 recall (0.39) is its weakest metric. The
+      retraining replay buffer is balanced on purpose (40 per grade), while the
+      held-out evaluation set keeps the APTOS proportions so its scores reflect
+      real-world prevalence.</p>
   </div>
 
-  <div class="card">
-    <h3>Baseline Model Performance</h3>
-    <p class="muted" id="metrics-source"></p>
-    <div class="metric-grid" id="metric-grid"></div>
+  <div class="card feature-card-insight">
+    <h3>2 &middot; Image resolution and shape</h3>
+    <p class="muted small">Megapixels per image: bar = middle 50% of images, dot = median.</p>
+    <div class="chart-wrap"><canvas id="res-chart" role="img"
+      aria-label="Image resolution in megapixels by grade"></canvas></div>
+    <p class="muted small">Share of images that are exactly square.</p>
+    <div class="chart-wrap"><canvas id="square-chart" role="img"
+      aria-label="Share of square images by grade"></canvas></div>
+    <p class="insight"><strong>What it tells us.</strong> Grade&nbsp;0 images are much smaller: a median of 1.1 megapixels
+      against 4.2&ndash;5.1 for grades 1&ndash;4, and half of them are exactly square
+      (1050&times;1050), against 1&ndash;5% of the diseased images. Resolution has the
+      strongest link with grade of any feature measured (Spearman &rho; = +0.61). That
+      points to an acquisition difference (healthy eyes largely photographed with a
+      different camera or at a different clinic) rather than anything about the retina.
+      The model resizes every image to 224&times;224, but a square photo still frames the
+      retina differently from a 4:3 one, so shape can act as a shortcut for &ldquo;No
+      DR&rdquo;. That would fit the model's near-certain grade-0 predictions and its much
+      weaker separation of grades 1&ndash;4.</p>
   </div>
+
+  <div class="card feature-card-insight">
+    <h3>3 &middot; Brightness and contrast</h3>
+    <p class="muted small">Inside the round retina (black border excluded), grey level 0&ndash;255.</p>
+    <div class="chart-wrap"><canvas id="bright-chart" role="img"
+      aria-label="Brightness inside the fundus by grade"></canvas></div>
+    <div class="chart-wrap"><canvas id="contrast-chart" role="img"
+      aria-label="Contrast inside the fundus by grade"></canvas></div>
+    <p class="insight"><strong>What it tells us.</strong> Inside the retina, grade&nbsp;0 images are brighter (median grey
+      level 96 against 83&ndash;87) and have more contrast (18.0 against
+      14.1&ndash;16.2; &rho; = &minus;0.31 with grade, the strongest link after image
+      size). The middle-50% bands overlap heavily, so neither separates the grades on its
+      own, and both move with the resolution difference above, which again suggests
+      capture conditions rather than disease. This is why illumination normalisation
+      (such as Ben Graham's method, tested in the notebook) is a standard step for
+      fundus photographs.</p>
+  </div>
+
+  <div class="card feature-card-insight">
+    <h3>4 &middot; Green channel</h3>
+    <p class="muted small">Mean green intensity inside the retina, 0&ndash;255.</p>
+    <div class="chart-wrap"><canvas id="green-chart" role="img"
+      aria-label="Green channel intensity by grade"></canvas></div>
+    <table class="count-table mini" id="rgb-table"></table>
+    <p class="insight"><strong>What it tells us.</strong> The green channel is where retinopathy is easiest to see: vessels,
+      haemorrhages and microaneurysms show the most contrast there. Diseased grades
+      have a darker green channel (median 66&ndash;72 against 82 for grade&nbsp;0), and red
+      is lower too, while blue shows no trend (&rho; = +0.06). But green does not keep
+      falling as the disease gets worse (grades 1 to 4 sit at 66, 72, 68 and 72), so on
+      its own it separates &ldquo;some DR&rdquo; from &ldquo;none&rdquo;, not how severe.
+      Telling the severe grades apart needs the spatial detail of the lesions themselves,
+      which the CNN has to learn from very few examples.</p>
+  </div>
+</div>
+
+<details class="card data-table">
+  <summary>Show the numbers behind these charts (medians by grade)</summary>
+  <div class="table-scroll"><table class="count-table" id="feature-table"></table></div>
+</details>
+
+<div class="card">
+  <h3>Deployed Model Performance</h3>
+  <p class="muted" id="metrics-source"></p>
+  <div class="metric-grid" id="metric-grid"></div>
 </div>
 
 <div class="card">
@@ -52,12 +132,17 @@
 let distChart = null;
 let activeVersion = null;
 
+// Chart tokens: validated categorical slots (dark steps) on the card surface.
+const C = { blue: '#3987e5', orange: '#d95926', aqua: '#199e70', yellow: '#c98500',
+            surface: '#16283f', grid: '#24405f', muted: '#9fb3c8', text: '#e6eef7' };
+
 async function load() {
   const r = await fetch('/api/insights');
   const d = await r.json();
   activeVersion = d.model.active_version;
   renderStats(d);
   renderDist(d);
+  renderFeatures(d.dataset_features);
   renderMetrics(d.baseline_metrics);
   renderHistory(d.history, d.model.active_version);
 }
@@ -86,27 +171,37 @@ function renderDist(d) {
   const ds = d.distributions;
   // Only draw pools that actually hold images (on a fresh cloud instance the
   // seed buffer and eval set are empty and would plot as rows of zeros).
+  // Each pool keeps its own colour whether or not the others are shown.
   const sets = [
-    { label: 'APTOS (original)', data: toPct(ds.aptos_original), color: '#2f80ed' },
+    { label: 'APTOS (original)', data: toPct(ds.aptos_original), counts: ds.aptos_original, color: C.blue },
   ];
   if (d.totals.seed_buffer > 0)
-    sets.push({ label: 'Seed buffer (training)', data: toPct(ds.seed_buffer), color: '#56ccf2' });
+    sets.push({ label: 'Seed buffer (training)', data: toPct(ds.seed_buffer), counts: ds.seed_buffer, color: C.orange });
   if (d.totals.eval_set > 0)
-    sets.push({ label: 'Held-out eval set', data: toPct(ds.eval_set), color: '#f2994a' });
+    sets.push({ label: 'Held-out eval set', data: toPct(ds.eval_set), counts: ds.eval_set, color: C.aqua });
   if (d.totals.user_uploads > 0)
-    sets.push({ label: 'Your uploads', data: toPct(ds.user_uploads), color: '#27ae60' });
+    sets.push({ label: 'Your uploads', data: toPct(ds.user_uploads), counts: ds.user_uploads, color: C.yellow });
 
   if (distChart) distChart.destroy();
   distChart = new Chart(document.getElementById('dist-chart'), {
     type: 'bar',
-    data: { labels: d.class_labels,
-      datasets: sets.map(s => ({ label: s.label, data: s.data, backgroundColor: s.color })) },
+    data: { labels: gradeTicks(d.class_labels),
+      datasets: sets.map(s => ({ label: s.label, data: s.data, counts: s.counts,
+        backgroundColor: s.color, borderRadius: 4, maxBarThickness: 24,
+        borderColor: C.surface, borderWidth: 1 })) },
     options: {
       responsive: true,
-      plugins: { legend: { labels: { color: '#9fb3c8' } } },
-      scales: { y: { beginAtZero: true, ticks: { color: '#9fb3c8',
-                     callback: v => v + '%' } },
-                x: { ticks: { color: '#9fb3c8' } } }
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: C.muted, boxWidth: 12 } },
+        tooltip: { callbacks: { label: ctx =>
+          `${ctx.dataset.label}: ${ctx.raw}% (${ctx.dataset.counts[ctx.dataIndex].toLocaleString()} images)` } },
+      },
+      scales: {
+        y: { beginAtZero: true, grid: { color: C.grid },
+             ticks: { color: C.muted, callback: v => v + '%' } },
+        x: { grid: { display: false }, ticks: { color: C.muted, maxRotation: 0 } },
+      }
     }
   });
 }
@@ -163,6 +258,107 @@ async function rollback(version) {
   } catch (e) {
     err.textContent = e.message; err.hidden = false;
   }
+}
+
+// ---- Dataset feature charts ------------------------------------------------
+const featureCharts = [];
+
+// "Moderate DR" -> ["Moderate", "grade 2"]: two short lines instead of slanted text.
+const gradeTicks = labels => labels.map((l, i) =>
+  [l === 'No DR' ? l : l.replace(/ DR$/, ''), `grade ${i}`]);
+
+function fmtNum(v, digits) {
+  return v == null ? '—' : Number(v).toLocaleString(undefined,
+    { minimumFractionDigits: digits, maximumFractionDigits: digits });
+}
+
+function baseOptions(yTitle, digits, extra = {}) {
+  return {
+    responsive: true,
+    aspectRatio: extra.aspectRatio || 2.2,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { labels: { color: C.muted, boxWidth: 12, usePointStyle: true } },
+      tooltip: { callbacks: extra.tooltip || {} },
+    },
+    scales: {
+      x: { grid: { display: false }, ticks: { color: C.muted, maxRotation: 0 } },
+      y: { beginAtZero: true, grid: { color: C.grid },
+           title: { display: !!yTitle, text: yTitle, color: C.muted },
+           ticks: { color: C.muted, callback: v => fmtNum(v, extra.tickDigits ?? 0) + (extra.suffix || '') } },
+    },
+  };
+}
+
+// Middle-50% band (floating bar) + median dot for one feature, by grade.
+function rangeChart(id, feature, labels, yTitle, digits) {
+  const g = feature.by_grade;
+  featureCharts.push(new Chart(document.getElementById(id), {
+    type: 'bar',
+    data: { labels, datasets: [
+      { label: 'Middle 50% of images', data: g.map(b => [b.q1, b.q3]),
+        backgroundColor: C.blue, borderRadius: 4, borderSkipped: false,
+        maxBarThickness: 24, order: 2, pointStyle: 'rect' },
+      { type: 'line', label: 'Median', data: g.map(b => b.median), showLine: false,
+        pointStyle: 'circle', pointRadius: 5, pointHoverRadius: 7,
+        pointBackgroundColor: C.orange, pointBorderColor: C.surface,
+        pointBorderWidth: 2, order: 1 },
+    ]},
+    options: baseOptions(yTitle, digits, {
+      tickDigits: digits > 1 ? 1 : 0,
+      tooltip: {
+        label: ctx => ctx.dataset.type === 'line'
+          ? `Median: ${fmtNum(ctx.raw, digits)}`
+          : `Middle 50%: ${fmtNum(ctx.raw[0], digits)} – ${fmtNum(ctx.raw[1], digits)}`,
+        footer: items => `${g[items[0].dataIndex].n.toLocaleString()} images`,
+      },
+    }),
+  }));
+}
+
+function renderFeatures(f) {
+  if (!f) {
+    document.getElementById('features-source').textContent =
+      'Dataset feature summaries not available (run scripts/compute_dataset_insights.py).';
+    return;
+  }
+  featureCharts.forEach(c => c.destroy());
+  featureCharts.length = 0;
+  const L = gradeTicks(f.labels), F = f.features;
+  document.getElementById('features-source').textContent =
+    `Measured on ${f.source} by scripts/compute_dataset_insights.py.`;
+
+  rangeChart('res-chart', F.megapixels, L, 'Megapixels', 2);
+  featureCharts.push(new Chart(document.getElementById('square-chart'), {
+    type: 'bar',
+    data: { labels: L, datasets: [{ label: 'Square images', data: f.square_share.map(v => +(100 * v).toFixed(1)),
+      backgroundColor: C.blue, borderRadius: 4, maxBarThickness: 24 }] },
+    options: { ...baseOptions('% of images', 0, { aspectRatio: 3.2, suffix: '%',
+      tooltip: { label: ctx => `Square: ${ctx.raw}% of ${F.megapixels.by_grade[ctx.dataIndex].n.toLocaleString()} images` } }),
+      plugins: { legend: { display: false },
+        tooltip: { callbacks: { label: ctx => `Square: ${ctx.raw}% of ${F.megapixels.by_grade[ctx.dataIndex].n.toLocaleString()} images` } } } },
+  }));
+  rangeChart('bright-chart', F.brightness, L, 'Brightness', 1);
+  rangeChart('contrast-chart', F.contrast, L, 'Contrast', 1);
+  rangeChart('green-chart', F.green, L, 'Green channel', 1);
+
+  // Median red / green / blue per grade, as text.
+  const rgb = ['red', 'green', 'blue'];
+  document.getElementById('rgb-table').innerHTML =
+    `<thead><tr><th>Median</th>${L.map((l, i) => `<th>Grade ${i}</th>`).join('')}</tr></thead><tbody>` +
+    rgb.map(k => `<tr><td>${k[0].toUpperCase() + k.slice(1)}</td>` +
+      F[k].by_grade.map(b => `<td>${fmtNum(b.median, 0)}</td>`).join('') + '</tr>').join('') +
+    '</tbody>';
+
+  // Data table: median per grade + Spearman correlation with grade, every feature.
+  const keys = Object.keys(F);
+  document.getElementById('feature-table').innerHTML =
+    `<thead><tr><th>Feature</th>${f.labels.map(l => `<th>${l}</th>`).join('')}<th>Spearman ρ with grade</th></tr></thead><tbody>` +
+    `<tr><td>Images</td>${f.counts.map(n => `<td>${n.toLocaleString()}</td>`).join('')}<td>—</td></tr>` +
+    `<tr><td>Square images</td>${f.square_share.map(v => `<td>${(100 * v).toFixed(0)}%</td>`).join('')}<td>—</td></tr>` +
+    keys.map(k => `<tr><td>${F[k].label}${F[k].unit ? ` <span class="muted">(${F[k].unit})</span>` : ''}</td>` +
+      F[k].by_grade.map(b => `<td>${fmtNum(b.median, b.median < 10 ? 2 : 1)}</td>`).join('') +
+      `<td>${F[k].spearman > 0 ? '+' : ''}${F[k].spearman.toFixed(2)}</td></tr>`).join('') + '</tbody>';
 }
 
 async function loadStatus() {

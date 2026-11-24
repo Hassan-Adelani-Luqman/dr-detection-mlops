@@ -100,5 +100,17 @@ def load_baseline_metrics() -> dict | None:
     }
 
 
+# Per-grade image-feature summaries of APTOS (scripts/compute_dataset_insights.py).
+DATASET_INSIGHTS_PATH = APP_DIR / "static" / "data" / "dataset_insights.json"
+
+
+def load_dataset_insights() -> dict | None:
+    """Feature summaries for the Insights page, or None if the file is missing."""
+    try:
+        return json.loads(DATASET_INSIGHTS_PATH.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+
+
 # Number of samples the base model was originally trained on (for the registry)
 BASE_TRAINING_SAMPLES = 2562
