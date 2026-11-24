@@ -14,6 +14,13 @@ data/uploads/*
 !data/uploads/.gitkeep
 data/app.db
 
+# Local APTOS dataset: a symlink to the original project's data/raw.
+# No trailing slash, so the pattern matches the symlink itself. Never committed.
+data/raw
+
+# Local backups of runtime state (registry, models, database, uploads)
+backup/
+
 # Runtime-generated models (regenerated from exp5_base.keras at startup)
 models/exp5_current.keras
 models/exp5_staging.keras

@@ -19,6 +19,9 @@ scripts/
 # Runtime data — mounted via volumes, not baked in
 data/uploads/*
 data/app.db
+data/raw
+backup/
+requirements-dev.txt
 models/exp5_current.keras
 models/exp5_staging.keras
 models/versions/*.keras
