@@ -12,7 +12,7 @@ specialist ophthalmologists are scarce.
 |---|---|
 | **Live app** | https://dr-detection-mlops-69ui.onrender.com |
 | **Video demo** | https://youtu.be/5iXWeM2hiyc |
-| **Notebook** | [`notebooks/diabetic_retinopathy_detection.ipynb`](notebooks/diabetic_retinopathy_detection.ipynb) |
+| **Notebook** | [`notebook/diabetic_retinopathy_detection.ipynb`](notebook/diabetic_retinopathy_detection.ipynb) |
 
 > ⚠️ Clinical screening aid only — not a substitute for professional diagnosis.
 > The live app sleeps when idle (free tier); the first request after inactivity
@@ -189,24 +189,31 @@ sleep when idle; the first request after inactivity takes 30–60 s.
 - `models/exp5_base.keras` — the trained 5-class model (1.24 M params, input
   224×224×3, output 5 classes). Committed; copied to `exp5_current.keras` at
   startup.
-- `notebooks/diabetic_retinopathy_detection.ipynb` — the notebook that created
+- `notebook/diabetic_retinopathy_detection.ipynb` — the notebook that created
   and evaluated the model. Baseline held-out metrics: QWK **0.711**,
   accuracy **0.673**, AUC **0.846**, Grade 3+4 recall **0.372**.
 
 ## Project structure
 
 ```
+src/
+  preprocessing.py     image preprocessing + the notebook's train/val/test split
+  model.py             load, freeze backbone, fine-tune, evaluate (metrics)
+  prediction.py        single-image / batch prediction (also a CLI)
 app/
   main.py              FastAPI app, lifespan startup, routers
-  config.py            paths, class labels, retraining constants
+  config.py            paths, UI metadata, retraining constants
   routes/              predict, upload, retrain, rollback, insights
-  services/            model_service, retrain_service, registry, preprocess
+  services/            model_service, retrain_service, registry
   database/            SQLAlchemy engine + UploadedImage model
   templates/ static/   Jinja2 pages + CSS
+data/
+  train/               replay buffer (seed images; not committed)
+  test/                held-out evaluation set (not committed)
 models/                exp5_base.keras (committed) + runtime versions
-notebooks/             evaluation notebook
+notebook/              training + evaluation notebook
 scripts/seed_data.py   stratified APTOS replay-buffer seeder
-tests/                 prediction, upload, base-model integrity
+tests/                 src, prediction, upload, base-model integrity
 Dockerfile  docker-compose.yml  render.yaml
 ```
 

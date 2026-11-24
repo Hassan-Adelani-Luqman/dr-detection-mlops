@@ -1,14 +1,15 @@
 """Retraining service — fine-tune the classifier head on the training pool.
 
 This module implements the three retraining sub-requirements:
-  1. upload + save          -> handled in routes/upload.py (Phase 4)
-  2. preprocess uploaded data -> build_dataset() below
-  3. retrain from a pre-trained base -> build_retrain_model() + run_retraining()
+  1. upload + save to the database -> app/routes/upload.py
+  2. preprocess uploaded data      -> build_dataset() below (src.preprocessing)
+  3. retrain from a pre-trained base -> src.model.build_finetune_model() +
+     fine_tune(), orchestrated by run_retraining()
 
-Design decisions (see IMPLEMENTATION_PLAN.md Part A):
+Design decisions:
   * The current model is loaded as the pre-trained base and its convolutional
-    backbone is FROZEN using a cutoff derived from the model itself, so only the
-    classifier head trains. This makes CPU retraining feasible in minutes.
+    backbone is FROZEN, so only the classifier head trains. This makes CPU
+    retraining feasible in minutes.
   * Training runs on the balanced replay buffer (seed images) TOGETHER with new
     user uploads, preventing catastrophic forgetting.
   * The original weights (exp5_base.keras) are NEVER overwritten. New versions
@@ -16,46 +17,19 @@ Design decisions (see IMPLEMENTATION_PLAN.md Part A):
 """
 import shutil
 from datetime import datetime, timezone
+from pathlib import Path
 
 import numpy as np
 import tensorflow as tf
 
-from pathlib import Path
-
-from app.config import (CURRENT_MODEL_PATH, EARLY_STOP_PATIENCE, FREEZE_CUTOFF,
-                        MIN_SAMPLES, RETRAIN_BATCH_SIZE, RETRAIN_EPOCHS,
-                        RETRAIN_LR, STAGING_MODEL_PATH, UPLOADS_DIR,
-                        VERSIONS_DIR)
+from app.config import (CURRENT_MODEL_PATH, EARLY_STOP_PATIENCE, MIN_SAMPLES,
+                        RETRAIN_BATCH_SIZE, RETRAIN_EPOCHS, RETRAIN_LR,
+                        STAGING_MODEL_PATH, UPLOADS_DIR, VERSIONS_DIR)
 from app.database.models import UploadedImage
 from app.services import model_service
-from app.services.preprocess import preprocess_image
 from app.services.registry import get_registry, update_registry
-
-
-def freeze_backbone(model, cutoff: int = FREEZE_CUTOFF) -> int:
-    """Freeze layers[:cutoff+1] (the conv backbone up to global pooling).
-
-    Setting trainable=False on a BatchNormalization layer also forces it into
-    inference mode in Keras 3, so the frozen BN running statistics stay fixed.
-    Asserts that trainable weights remain — converting a bad cutoff from a
-    silent no-op into a loud failure.
-    """
-    for layer in model.layers[:cutoff + 1]:
-        layer.trainable = False
-    assert model.trainable_weights, "freeze cutoff left no trainable weights"
-    return cutoff
-
-
-def build_retrain_model(base_path=CURRENT_MODEL_PATH):
-    """Load the current model as a pre-trained base and freeze its backbone."""
-    model = tf.keras.models.load_model(base_path)
-    freeze_backbone(model)
-    model.compile(
-        optimizer=tf.keras.optimizers.Adam(RETRAIN_LR),
-        loss="sparse_categorical_crossentropy",
-        metrics=["accuracy"],
-    )
-    return model
+from src.model import build_finetune_model, fine_tune
+from src.preprocessing import preprocess_image
 
 
 def build_dataset(db_session, batch_size: int = RETRAIN_BATCH_SIZE):
@@ -141,22 +115,17 @@ def run_retraining(db_session, epochs: int = RETRAIN_EPOCHS,
     status.setdefault("logs", [])
 
     # 1. Pre-trained base with frozen backbone.
-    model = build_retrain_model(CURRENT_MODEL_PATH)
+    model = build_finetune_model(CURRENT_MODEL_PATH, learning_rate=RETRAIN_LR)
 
     # 2. Preprocess the pooled images into datasets.
     train_ds, val_ds, n_train, n_val, skipped = build_dataset(db_session)
     n_samples = n_train + n_val
     status["total_epochs"] = epochs
 
-    # 3. Fine-tune the head.
-    callbacks = [
-        tf.keras.callbacks.EarlyStopping(monitor="val_loss",
-                                         patience=EARLY_STOP_PATIENCE,
-                                         restore_best_weights=True),
-        _StatusCallback(status, epochs),
-    ]
-    history = model.fit(train_ds, validation_data=val_ds, epochs=epochs,
-                        callbacks=callbacks, verbose=0)
+    # 3. Fine-tune the head (early stopping restores the best epoch).
+    history = fine_tune(model, train_ds, val_ds, epochs=epochs,
+                        early_stop_patience=EARLY_STOP_PATIENCE,
+                        callbacks=[_StatusCallback(status, epochs)])
 
     # 4. Version + register (NEVER overwrite base).
     registry = get_registry()

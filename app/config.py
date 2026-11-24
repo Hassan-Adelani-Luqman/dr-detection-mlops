@@ -1,4 +1,7 @@
-"""Central configuration: paths, class metadata, and retraining constants.
+"""Central configuration for the web app: paths, UI metadata, retraining settings.
+
+Model and dataset constants (class labels, input size, freeze cutoff) live in
+``src/config.py`` and are re-exported here so app code has one import point.
 
 Values that the container may need to override (database location, uploads
 directory) are read from the environment with sensible local defaults, so the
@@ -6,6 +9,9 @@ same code runs unchanged locally and in Docker.
 """
 import os
 from pathlib import Path
+
+from src.config import (CLASS_LABELS, CLINICAL_NOTES, FREEZE_CUTOFF,  # noqa: F401
+                        NUM_CLASSES, TARGET_SIZE)
 
 # --------------------------------------------------------------------------- #
 # Paths
@@ -17,6 +23,8 @@ DATA_DIR = BASE_DIR / "data"
 VERSIONS_DIR = MODELS_DIR / "versions"
 
 UPLOADS_DIR = Path(os.getenv("UPLOADS_DIR", str(DATA_DIR / "uploads")))
+TRAIN_DIR = DATA_DIR / "train"     # replay buffer (seed images from the training split)
+TEST_DIR = DATA_DIR / "test"       # held-out evaluation set (test split)
 
 BASE_MODEL_PATH = MODELS_DIR / "exp5_base.keras"           # ORIGINAL — never written
 CURRENT_MODEL_PATH = MODELS_DIR / "exp5_current.keras"     # active served model
@@ -24,7 +32,7 @@ STAGING_MODEL_PATH = MODELS_DIR / "exp5_staging.keras"     # transient write tar
 REGISTRY_PATH = MODELS_DIR / "model_registry.json"
 
 # Ensure runtime directories exist (safe if already present)
-for _d in (MODELS_DIR, DATA_DIR, VERSIONS_DIR, UPLOADS_DIR):
+for _d in (MODELS_DIR, DATA_DIR, VERSIONS_DIR, UPLOADS_DIR, TRAIN_DIR, TEST_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
 # --------------------------------------------------------------------------- #
@@ -33,27 +41,8 @@ for _d in (MODELS_DIR, DATA_DIR, VERSIONS_DIR, UPLOADS_DIR):
 DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{(DATA_DIR / 'app.db').as_posix()}")
 
 # --------------------------------------------------------------------------- #
-# Model / inference
+# UI
 # --------------------------------------------------------------------------- #
-TARGET_SIZE = (224, 224)          # (height, width) — matches exp5 training
-NUM_CLASSES = 5
-
-CLASS_LABELS = {
-    0: "No DR",
-    1: "Mild DR",
-    2: "Moderate DR",
-    3: "Severe DR",
-    4: "Proliferative DR",
-}
-
-CLINICAL_NOTES = {
-    0: "No diabetic retinopathy detected. Routine annual screening recommended.",
-    1: "Mild non-proliferative DR. Re-screen in 6–12 months.",
-    2: "Moderate non-proliferative DR. Specialist review within 3–6 months.",
-    3: "Severe non-proliferative DR. URGENT specialist referral required.",
-    4: "Proliferative DR. IMMEDIATE ophthalmologist referral — sight-threatening.",
-}
-
 # UI colour per grade (green -> red severity ramp)
 GRADE_COLORS = {
     0: "#2e7d32",   # green
@@ -64,9 +53,9 @@ GRADE_COLORS = {
 }
 
 # --------------------------------------------------------------------------- #
-# Retraining (tuned in Part A of the plan to avoid catastrophic forgetting)
+# Retraining (low LR + frozen backbone + replay buffer to avoid catastrophic
+# forgetting; the freeze cutoff itself is in src/config.py)
 # --------------------------------------------------------------------------- #
-FREEZE_CUTOFF = 30                # freeze layers[:FREEZE_CUTOFF+1] (verified Phase 0.5)
 # Minimum images required to retrain. Kept low (5) so the public demo can
 # retrain on a handful of images uploaded live, since the APTOS replay buffer
 # cannot be redistributed to the hosted environment. Locally, the seeded buffer

@@ -5,7 +5,7 @@ __pycache__/
 .env
 *.log
 
-# Root-level source artifacts (copied into models/ and notebooks/; do not double-commit)
+# Root-level source artifacts (copied into models/ and notebook/; do not double-commit)
 /exp5_deep_cnn.keras
 /diabetic_retinopathy_detection.ipynb
 
@@ -13,6 +13,16 @@ __pycache__/
 data/uploads/*
 !data/uploads/.gitkeep
 data/app.db
+
+# Replay buffer and held-out evaluation images (APTOS, not redistributable).
+# Keep the folder READMEs, .gitkeep and the evaluation manifest.
+data/train/*
+!data/train/.gitkeep
+!data/train/README.md
+data/test/*
+!data/test/.gitkeep
+!data/test/README.md
+!data/test/manifest.csv
 
 # Local APTOS dataset: a symlink to the original project's data/raw.
 # No trailing slash, so the pattern matches the symlink itself. Never committed.

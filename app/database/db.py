@@ -1,6 +1,6 @@
 """SQLAlchemy engine, session factory, and FastAPI dependency.
 
-`check_same_thread=False` is required because the retraining thread (Phase 5)
+`check_same_thread=False` is required because the background retraining thread
 touches the database from outside the request thread. SQLite is otherwise
 single-writer, which is fine for this app's load.
 """

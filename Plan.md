@@ -110,62 +110,68 @@ the live Render URL, Docker, the YouTube video link, and 11 passing tests.
 
 ## Phase 1 — Repo layout and shared ML code in `src/`  (P0, ~3 h) — G1
 
-**Status:** ☐ not started
+**Status:** ☑ done 2026-11-24
 
-The brief requires this layout. Move the pure ML code into `src/`. `app/` keeps only the
-web layer, the database and the registry, and imports from `src/`. `src/` must never
-import from `app/`.
+The brief requires this layout. The pure ML code now lives in `src/`. `app/` keeps only
+the web layer, the database and the registry, and imports from `src/`. Nothing in `src/`
+imports from `app/`.
 
-- [ ] 1.1 `src/__init__.py`, plus `src/config.py` holding `TARGET_SIZE`, `NUM_CLASSES`,
-  `CLASS_LABELS`, `CLINICAL_NOTES`, and the split constants (`SPLIT_SEED=42`,
-  `VAL_SIZE=0.15`, `TEST_SIZE=0.15`). `app/config.py` imports these instead of
-  defining them.
-- [ ] 1.2 `src/preprocessing.py`
-  - `preprocess_image()` and `preprocess_batch()`, moved verbatim from
-    `app/services/preprocess.py` (BGR→RGB, resize to 224, /255). Delete the old module.
-  - `load_labels(csv_path)` and `stratified_split(df)`. These must reproduce the notebook's
-    two-stage split **exactly**: `train_test_split(test_size=0.15, stratify, random_state=42)`,
-    then the same again with `test_size=0.15/0.85` → 2562 / 550 / 550.
-  - `split_of_ids(aptos_dir) -> dict[id_code, "train"|"val"|"test"]`.
-- [ ] 1.3 `src/model.py`
-  - `load_model(path)` and `freeze_backbone(model, cutoff=30)`. Layer 30 is
-    `global_average_pooling2d_2`, so the dense head (layers 31+) is what trains.
-  - `build_finetune_model(base_path, lr)` and `fine_tune(model, train_ds, val_ds, epochs, callbacks)`.
-  - `evaluate_model(model, paths_or_array, y, batch_size=32) -> dict`. It returns accuracy,
-    weighted F1, macro F1, QWK, AUC (one-vs-rest), per-class recall, the confusion matrix,
-    and `grade34_recall`. Define `grade34_recall` as the **mean of the class-3 and class-4
-    recall**, which is how the original project defines it. Load images in batches so 550
-    images don't all sit in memory at once.
-- [ ] 1.4 `src/prediction.py`
-  - `predict_proba(model, paths, batch_size)` and
-    `predict_image(model, path) -> {predicted_grade, grade_label, clinical_note, confidence, confidence_scores}`.
-  - A command-line entry point: `python -m src.prediction <image> [--model models/exp5_base.keras]`.
-- [ ] 1.5 Rewire the app:
-  - `app/services/model_service.py` → uses `src.prediction.predict_image`.
-  - `app/services/retrain_service.py` → uses `src.model` and `src.preprocessing`.
-  - Fix the imports in `tests/`.
-  - Remove the dangling `IMPLEMENTATION_PLAN.md` / "Phase 0.5" / "Part A" references in
-    `app/config.py`, `retrain_service.py` and the old preprocess docstring.
-- [ ] 1.6 Rename `notebooks/` to `notebook/` with `git mv`. Then:
-  - In notebook cell 8, change `PROJECT_ROOT.name == 'notebooks'` to
-    `in ('notebooks', 'notebook')`.
-  - Update README links and `.dockerignore`.
-- [ ] 1.7 Create `data/train/` and `data/test/`, each with a `README.md` and `.gitkeep`:
-  - `train/` holds the replay buffer, `test/` the held-out evaluation set (Phase 2),
-    `uploads/` user data, and `raw/` the APTOS source.
-  - Gitignore the images in both folders but keep the README and `manifest.csv`.
-- [ ] 1.8 New `tests/test_src.py`, using synthetic images so it runs on a fresh clone:
-  - Preprocessing returns shape (224, 224, 3), float32, values in [0, 1].
-  - `predict_image` returns all its keys and the probabilities sum to 1.
-  - `evaluate_model` on perfect predictions gives QWK = 1 and accuracy = 1.
-  - `stratified_split` sizes are 2562 / 550 / 550 (skip if `data/raw` is absent).
-- [ ] 1.9 (P2, only if D4 = yes) `scripts/export_h5.py` writes `models/exp5_base.h5` and
-  checks that its predictions match the `.keras` model (max absolute difference < 1e-5).
+- [x] 1.1 `src/__init__.py` and `src/config.py`:
+  - `TARGET_SIZE`, `NUM_CLASSES`, `CLASS_LABELS`, `CLINICAL_NOTES`, the split constants
+    (`SPLIT_SEED=42`, `VAL_SIZE=0.15`, `TEST_SIZE=0.15`), `FREEZE_CUTOFF=30`, `REPO_ROOT`
+    and `DEFAULT_MODEL_PATH`.
+  - `app/config.py` re-exports these and keeps only app settings. It also gains
+    `TRAIN_DIR` and `TEST_DIR`.
+- [x] 1.2 `src/preprocessing.py`:
+  - `preprocess_image()` and `preprocess_batch()`, moved verbatim.
+    `app/services/preprocess.py` is deleted.
+  - `load_labels()`, `stratified_split()` (the notebook's two-stage split, giving
+    2562 / 550 / 550, which a test checks) and `split_of_ids()`.
+- [x] 1.3 `src/model.py`:
+  - `load_model()` and `freeze_backbone()`. It raises if nothing is left to train, and a
+    test checks that layer 30 is the global average pooling layer.
+  - `build_finetune_model()` and `fine_tune()`, which adds early stopping with the best
+    weights restored.
+  - `compute_metrics(y_true, probs)` is pure and testable. It returns `n`, accuracy, QWK,
+    AUC (`None` if a grade is missing), weighted and macro F1, `grade34_recall` (the mean
+    of the class-3 and class-4 recall), per-class recall and the confusion matrix. NaN is
+    turned into `None`, so results are always valid JSON.
+  - `evaluate_model(model, paths_or_array, y)` is `predict_proba` plus `compute_metrics`,
+    loading images in batches.
+- [x] 1.4 `src/prediction.py`:
+  - `predict_proba()` (paths loaded in batches, or an array), `format_prediction(probs)`
+    and `predict_image()`.
+  - Command line: `python -m src.prediction <images…> [--model …] [--json]`.
+- [x] 1.5 App rewired:
+  - `model_service` decodes the image **outside** the lock and runs only inference under
+    it, then uses `format_prediction`.
+  - `retrain_service` uses `build_finetune_model` and `fine_tune`.
+  - The stale "Phase N", "Part A" and `IMPLEMENTATION_PLAN.md` references are removed
+    from `app/`.
+- [x] 1.6 `notebooks/` renamed to `notebook/` with `git mv`.
+  - The cell-8 path check was patched at the byte level: the file uses CRLF line endings,
+    so the git diff is a single line.
+  - README links and project structure, `.dockerignore` and `.gitignore` updated.
+- [x] 1.7 `data/train/` and `data/test/` created, each with a `README.md` and `.gitkeep`.
+  Their images are ignored by git (except `data/test/manifest.csv`) and Docker.
+- [x] 1.8 `tests/test_src.py` adds 14 tests: preprocessing (shape, BGR→RGB, bad file),
+  the split, prediction (result keys, paths vs array, CLI), metrics (perfect, the
+  `grade34_recall` definition, missing grades), and the freeze.
+  - `conftest.py` gains the `synthetic_image` and `base_model` fixtures.
+  - **Also fixed:** a bare `pytest` (the README's command) used to fail with
+    `No module named 'app'`. The new `pytest.ini` sets `pythonpath = .` and registers the
+    `slow` marker.
+- [ ] 1.9 Skipped (D4 = no `.h5` export).
 
-**Done when:**
-- `pytest` passes.
-- `python -m src.prediction demo_images/grade0_1.png` prints grade 0.
-- `docker compose build` succeeds, and the app predicts through the UI.
+**Done when** (all checked 2026-11-24):
+- `pytest` → 25 passed.
+- `python -m src.prediction demo_images/grade0_1.png` → grade 0 (0.98). Held-out
+  `cd314653a4d8` → grade 0 (1.00) and `e1fb532f55df` → grade 3 (0.84), the same as the audit.
+- uvicorn: every page and `/docs` return 200, `/api/predict` works and rejects non-images
+  with 400.
+- One real retrain through the API completed (early stopping at epoch 5, created v4, the
+  model was hot-swapped), and `exp5_base.keras` is unchanged.
+- `docker compose build` succeeds.
 
 **Commit:** `refactor: move ML core into src/ (preprocessing, model, prediction) to match required layout`
 
