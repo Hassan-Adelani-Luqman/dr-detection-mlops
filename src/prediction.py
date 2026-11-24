@@ -28,11 +28,17 @@ def predict_proba(model, images: Union[np.ndarray, Sequence[PathLike]],
                   batch_size: int = 32) -> np.ndarray:
     """Return class probabilities, shape (N, 5).
 
-    ``images`` is either a preprocessed array (N, 224, 224, 3) or a sequence of
-    image paths. Paths are loaded batch by batch, so large sets never sit in
-    memory all at once.
+    ``images`` is a preprocessed float array (N, 224, 224, 3) in [0, 1], the
+    same as a uint8 array in 0-255 (4x smaller, scaled batch by batch), or a
+    sequence of image paths (loaded batch by batch). Large sets never sit in
+    memory as floats all at once.
     """
     if isinstance(images, np.ndarray):
+        if images.dtype == np.uint8:
+            out = [model.predict(images[i:i + batch_size].astype(np.float32) / 255.0,
+                                 verbose=0)
+                   for i in range(0, len(images), batch_size)]
+            return np.concatenate(out) if out else np.empty((0, len(CLASS_LABELS)))
         return model.predict(images, batch_size=batch_size, verbose=0)
     paths = list(images)
     out = []

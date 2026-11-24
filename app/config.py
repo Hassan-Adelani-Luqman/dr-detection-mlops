@@ -21,19 +21,23 @@ BASE_DIR = Path(__file__).resolve().parent.parent          # repo root
 APP_DIR = BASE_DIR / "app"
 MODELS_DIR = BASE_DIR / "models"
 DATA_DIR = BASE_DIR / "data"
-VERSIONS_DIR = MODELS_DIR / "versions"
+# Writable model state (current model, versions, registry). Defaults to
+# models/; tests point it at a temp folder so they never touch real state.
+MODELS_RUNTIME_DIR = Path(os.getenv("MODELS_RUNTIME_DIR", str(MODELS_DIR)))
+VERSIONS_DIR = MODELS_RUNTIME_DIR / "versions"
 
 UPLOADS_DIR = Path(os.getenv("UPLOADS_DIR", str(DATA_DIR / "uploads")))
 TRAIN_DIR = DATA_DIR / "train"     # replay buffer (seed images from the training split)
 TEST_DIR = DATA_DIR / "test"       # held-out evaluation set (test split)
 
 BASE_MODEL_PATH = MODELS_DIR / "exp5_base.keras"           # ORIGINAL — never written
-CURRENT_MODEL_PATH = MODELS_DIR / "exp5_current.keras"     # active served model
-STAGING_MODEL_PATH = MODELS_DIR / "exp5_staging.keras"     # transient write target
-REGISTRY_PATH = MODELS_DIR / "model_registry.json"
+CURRENT_MODEL_PATH = MODELS_RUNTIME_DIR / "exp5_current.keras"     # active served model
+STAGING_MODEL_PATH = MODELS_RUNTIME_DIR / "exp5_staging.keras"     # transient write target
+REGISTRY_PATH = MODELS_RUNTIME_DIR / "model_registry.json"
 
 # Ensure runtime directories exist (safe if already present)
-for _d in (MODELS_DIR, DATA_DIR, VERSIONS_DIR, UPLOADS_DIR, TRAIN_DIR, TEST_DIR):
+for _d in (MODELS_DIR, MODELS_RUNTIME_DIR, DATA_DIR, VERSIONS_DIR, UPLOADS_DIR,
+           TRAIN_DIR, TEST_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
 # --------------------------------------------------------------------------- #
@@ -67,6 +71,18 @@ RETRAIN_EPOCHS = 8
 RETRAIN_BATCH_SIZE = 8
 RETRAIN_LR = 1e-5                 # low LR: fine-tune the head without wrecking it
 EARLY_STOP_PATIENCE = 3
+
+# Promotion gate: a retrained model replaces the current one only if, on the
+# held-out evaluation set, its QWK is no more than PROMOTION_QWK_TOLERANCE below
+# the current model's and its Grade 3+4 recall no more than
+# PROMOTION_RECALL_TOLERANCE below. Otherwise it is saved but not served.
+PROMOTION_QWK_TOLERANCE = float(os.getenv("PROMOTION_QWK_TOLERANCE", "0.01"))
+PROMOTION_RECALL_TOLERANCE = float(os.getenv("PROMOTION_RECALL_TOLERANCE", "0.05"))
+
+# Retraining trigger: recommend a retrain once this many new labelled images
+# have been uploaded since the last one; with AUTO_RETRAIN=true, start it.
+RETRAIN_TRIGGER_THRESHOLD = int(os.getenv("RETRAIN_TRIGGER_THRESHOLD", "20"))
+AUTO_RETRAIN = os.getenv("AUTO_RETRAIN", "false").lower() in ("1", "true", "yes")
 
 # --------------------------------------------------------------------------- #
 # Reference data for the Insights page

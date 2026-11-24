@@ -1,9 +1,9 @@
 """Shared pytest fixtures.
 
-The database and uploads directory are redirected to temporary locations
-(before any app module is imported) so tests never touch real data. The model
-and registry use the real models directory: exp5_base.keras is read-only, and
-the integrity test relies on hashing the genuine base file.
+The database, uploads directory, and writable model state (current model,
+versions, registry) are redirected to temporary locations before any app module
+is imported, so tests never touch real data. The base model is read from the
+real models/exp5_base.keras (read-only); the integrity tests hash that file.
 """
 import os
 import tempfile
@@ -18,6 +18,9 @@ _TMP = Path(tempfile.mkdtemp(prefix="drmlops_test_"))
 os.environ["DATABASE_URL"] = f"sqlite:///{(_TMP / 'test.db').as_posix()}"
 os.environ["UPLOADS_DIR"] = str(_TMP / "uploads")
 (_TMP / "uploads").mkdir(parents=True, exist_ok=True)
+# Current model, versions and registry live in the temp folder too; the base
+# model is still read from the committed models/exp5_base.keras.
+os.environ["MODELS_RUNTIME_DIR"] = str(_TMP / "models")
 
 from fastapi.testclient import TestClient  # noqa: E402
 

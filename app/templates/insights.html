@@ -116,8 +116,8 @@
   <div class="table-scroll">
     <table class="count-table" id="history-table">
       <thead><tr>
-        <th>Version</th><th>Type</th><th>Samples</th><th>Accuracy</th>
-        <th>Created</th><th>Status</th><th></th>
+        <th>Version</th><th>Type</th><th>Trained on</th><th>Held-out QWK</th>
+        <th>Held-out accuracy</th><th>Decision</th><th>Created</th><th></th>
       </tr></thead>
       <tbody id="history-body"></tbody>
     </table>
@@ -228,20 +228,35 @@ function renderMetrics(m) {
        <span class="metric-key">${k}</span></div>`).join('');
 }
 
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
 function renderHistory(history, active) {
   document.getElementById('history-body').innerHTML = history.slice().reverse().map(h => {
     const isActive = h.version === active;
-    const acc = h.final_accuracy != null ? (h.final_accuracy * 100).toFixed(1) + '%' : '—';
+    const ho = h.heldout;
+    const qwk = ho && ho.qwk != null ? ho.qwk.toFixed(3) : '—';
+    const acc = ho && ho.accuracy != null ? (ho.accuracy * 100).toFixed(1) + '%' : '—';
+    const hoTitle = ho ? `Measured on ${ho.n} images (${ho.source})` : 'Not evaluated on held-out data';
+    const trainTitle = h.train_accuracy != null
+      ? `Training accuracy ${(h.train_accuracy * 100).toFixed(1)}% (not comparable across versions)` : '';
+    let decision;
+    if (h.type === 'base') decision = '<span class="decision-tag">original</span>';
+    else if (h.promoted === true)
+      decision = `<span class="decision-tag promoted" title="${esc(h.decision_reason || '')}">✓ promoted</span>`;
+    else if (h.promoted === false)
+      decision = `<span class="decision-tag held" title="${esc(h.decision_reason || '')}">✕ not promoted</span>`;
+    else decision = '<span class="decision-tag" title="Trained before held-out evaluation existed">promoted (no evaluation)</span>';
     const created = h.created_at ? new Date(h.created_at).toLocaleString() : '—';
-    const btn = isActive
-      ? '<span class="badge-active">Active</span>'
-      : `<button class="btn-small" onclick="rollback('${h.version}')">Rollback</button>`;
+    const action = isActive
+      ? '<span class="dot-active"></span><span class="badge-active">serving</span>'
+      : `<button class="btn-small" onclick="rollback('${esc(h.version)}')">Activate</button>`;
     return `<tr>
-      <td><code>${h.version}</code></td><td>${h.type}</td>
-      <td>${h.samples_trained_on ?? '—'}</td><td>${acc}</td>
-      <td>${created}</td>
-      <td>${isActive ? '<span class="dot-active"></span> serving' : ''}</td>
-      <td>${btn}</td></tr>`;
+      <td><code title="${esc(trainTitle)}">${esc(h.version)}</code></td><td>${esc(h.type)}</td>
+      <td>${h.samples_trained_on ?? '—'}</td>
+      <td title="${esc(hoTitle)}">${qwk}</td><td title="${esc(hoTitle)}">${acc}</td>
+      <td>${decision}</td><td>${created}</td><td>${action}</td></tr>`;
   }).join('');
 }
 

@@ -493,51 +493,79 @@ status card.
 
 ## Phase 7 — Evaluate retrained models on held-out data before promoting  (evaluation P0, gate P1, ~5 h) — G10, G11
 
-**Status:** ☐ not started
+**Status:** ☑ done 2026-11-24 (including the P2 trigger in 7.7)
 
-- [ ] 7.1 Split the retraining pool into train and validation with **stratification**:
-  `train_test_split(stratify=y)` when every class has at least 2 images, otherwise a random
-  split. Correct the misleading "Stratified-ish" comment.
-- [ ] 7.2 After training, score **both the new candidate and the current active model** on
-  the evaluation set (all `source="eval"` rows; locally the 550 held-out images), using
-  `src.model.evaluate_model` in batches. If there is no evaluation set, score on the
-  internal validation split and label the result
-  `eval_source = "validation split (no held-out set)"`.
-- [ ] 7.3 Promotion rule: a pure function `should_promote(candidate, current, cfg) -> (bool, reason)`.
-  - Defaults from D3, which can be overridden with `PROMOTION_QWK_TOLERANCE` and
-    `PROMOTION_RECALL_TOLERANCE`.
-  - A rejected candidate is **still saved** as a version with `promoted: false`, and can
-    be activated by hand from Insights. Rename "Rollback" to "Activate" for versions that
-    aren't active.
-- [ ] 7.4 Add these fields to each registry entry: `eval_source`, `eval_n`,
-  `eval_candidate {accuracy, qwk, weighted_f1, auc, grade34_recall}`, `eval_previous {…}`,
-  `promoted`, `decision_reason`, `train_counts_by_grade`, and `train_accuracy` (renamed from
-  `final_accuracy`; still read the old key for existing entries).
-- [ ] 7.5 Add a `stage` field to the retraining status and show it on the Retrain page:
-  `loading pool → preprocessing N images → training epoch k/8 → evaluating on N held-out
-  images → decision`. The result card shows a **side-by-side table (current vs candidate,
-  with coloured differences)** and the decision with its reason.
-- [ ] 7.6 Insights history columns: Version | Type | Trained on | Held-out QWK |
-  Held-out accuracy | Decision | Created | Action. Show training accuracy only in a tooltip.
-- [ ] 7.7 (P2) Retrain "when the need arises":
-  - Show a banner on Upload and Retrain: "N new labelled images since the last retrain —
-    retraining recommended" once `RETRAIN_TRIGGER_THRESHOLD` is reached (default 20).
-  - Optional `AUTO_RETRAIN=true`, off by default, starts retraining automatically when an
-    upload crosses the threshold.
-- [ ] 7.8 Tests:
-  - Unit tests for `should_promote` covering promote, reject on QWK, and reject on recall.
-  - A `@pytest.mark.slow` end-to-end retrain on a tiny synthetic pool for 1 epoch. Check
-    that the registry entry has the evaluation fields and that **`exp5_base.keras` has the
-    same SHA-256 before and after**. This extends the base-integrity claim from registry
-    updates to real retrains.
+- [x] 7.1 Stratified train/val split (`split_train_val`):
+  - The pool is split 80/20 stratified by grade. On small pools the validation share
+    rises to one image per grade so stratifying stays possible; it falls back to random
+    only when a grade has fewer than 2 images.
+  - The misleading "Stratified-ish" comment is gone.
+  - Training and evaluation images are loaded in parallel as uint8 arrays (exactly k/255,
+    a quarter of the memory), and the tf.data pipeline scales each batch.
+- [x] 7.2 After training, the **candidate and the served model** are both scored on the
+  held-out evaluation set (every `source="eval"` row: 550 locally, plus any eval uploads).
+  The eval images are decoded once and shared by both models. With no eval set, they are
+  compared on the validation split and labelled as such.
+- [x] 7.3 `app/services/promotion.py`: `should_promote(candidate, current)` returns
+  `(bool, reason)`.
+  - It rejects when QWK drops by more than `PROMOTION_QWK_TOLERANCE` (0.01) or Grade 3+4
+    recall by more than `PROMOTION_RECALL_TOLERANCE` (0.05). Both can be set from the
+    environment.
+  - A rejected candidate is still saved in `models/versions/` and can be **activated** from
+    Insights ("Rollback" is renamed "Activate").
+- [x] 7.4 Each registry entry now records `base_version`, `train_counts_by_grade`,
+  `split`, `train_accuracy` (renamed; older entries are read through
+  `setdefault`), `eval_source`, `eval_n`, `eval_candidate`, `eval_previous`, `promoted`
+  and `decision_reason`.
+  - New `registry.register_version(entry, promote)` and
+    `registry.install_current_model(src)`, an atomic copy-and-rename, which rollback uses
+    too.
+- [x] 7.5 Retrain page:
+  - **Progress**: a five-stage list (✓ done, ● current), the status text and progress
+    bar, and the epoch table.
+  - **Result**: a "✓ Promoted" or "✕ Not promoted" banner with the reason, and a
+    **side-by-side table** (current vs new) with ▲/▼ changes.
+  - **Training data**: training pool, eval set, new uploads, last retrained, the
+    recommendation banner and the promotion rule.
+  - The page resumes polling after a reload or an automatic retrain.
+- [x] 7.6 Insights history columns: Version | Type | Trained on | Held-out QWK |
+  Held-out accuracy | Decision | Created | Activate.
+  - Training accuracy is only in a tooltip.
+  - The base row uses the baseline measurement; older entries show "promoted (no
+    evaluation)".
+- [x] 7.7 Trigger:
+  - `/api/retrain/readiness` counts user uploads since `last_retrained` and recommends a
+    retrain at `RETRAIN_TRIGGER_THRESHOLD` (20).
+  - With `AUTO_RETRAIN=true` (off by default), an upload to the training pool that
+    crosses the threshold starts the retrain through the shared `start_retraining()`;
+    uploads report `auto_retrain_started`.
+- [x] 7.8 Tests (12 new, 3 of them slow):
+  - `test_promotion.py` (5 rule cases).
+  - `test_retrain.py`: the split (stratified on small and large pools, random fallback)
+    and readiness counting relative to `last_retrained`.
+  - **End-to-end, marked slow**: a forced promotion (registry, served file = the version
+    file, stage "done", eval fields present, no eval images trained on, **base SHA-256
+    unchanged**), a forced rejection (saved, not served, active and current file
+    unchanged), and a retrain **through the API** with status polling. Each uses a real
+    1-epoch fine-tune on a synthetic pool.
+  - Also: model state is isolated in tests. `MODELS_RUNTIME_DIR` (new in `config.py`)
+    points the current model, versions and registry at a temp folder in `conftest`, so
+    tests never write under `models/`.
+  - Also: `fine_tune` passes `shuffle=False` (the dataset already shuffles), which
+    silences Keras's warning.
 
-**Done when:**
-- A local retrain shows held-out metrics for both models plus the decision, and Insights
-  lists the held-out QWK per version.
-- Setting a negative tolerance shows the rejection path.
+**Done when** (checked):
+- `pytest` → 67 passed in about 37 s. Retrain page JavaScript passes `node --check`.
+- **Real run on real data** (local, 200-image replay buffer, 550 held-out images, about
+  4 min: preprocessing 36 s, 8 epochs about 2 min, evaluating both models 82 s):
+  - The served `v1_base` scored exactly its published baseline (QWK 0.588), which confirms
+    the evaluation path.
+  - The candidate scored QWK 0.594 (+0.006), Grade 3+4 recall 0.424 (+0.034), accuracy
+    0.635, weighted F1 0.667 and AUC 0.844, and was **promoted**.
+  - Screenshots show the progress stages, the decision banner, the comparison table, the
+    header pill switching to v2, and the Insights history.
+  - Local state was restored to a clean `v1_base` afterwards for the video.
 
-Retraining now takes about 1 extra minute for evaluation; the stage display covers it in
-the UI.
 **Commit:** `feat: evaluate retrained models on held-out data and gate promotion`
 
 ---

@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 from app.config import APP_DIR, CLASS_LABELS, UPLOADS_DIR
 from app.database.db import get_db
 from app.database.models import UploadedImage
+from app.routes.retrain import maybe_auto_retrain
 from app.services.pool import counts_by_grade
 from app.utils.validation import MAX_IMAGE_BYTES, image_problem, read_image_upload
 
@@ -83,9 +84,11 @@ def _pool_counts(db: Session) -> dict:
 def _summary(db: Session, destination: str, saved: list, rejected: list,
              ignored: int = 0) -> dict:
     db.commit()
+    auto = bool(saved) and destination == "train" and maybe_auto_retrain(db)
     user = counts_by_grade(db, "user")
     return {
         "destination": destination,
+        "auto_retrain_started": auto,
         "saved": [{"id": r.id, "filename": r.filename, "grade_label": r.grade_label,
                    "grade_name": CLASS_LABELS[r.grade_label]} for r in saved],
         "rejected": rejected,
@@ -122,6 +125,7 @@ def api_upload(
     row = _save_image(db, data, file.filename, grade_label, source)
     db.commit()
     db.refresh(row)
+    auto = destination == "train" and maybe_auto_retrain(db)
 
     counts = counts_by_grade(db, "user")
     return {
@@ -130,6 +134,7 @@ def api_upload(
         "grade_label": grade_label,
         "grade_name": CLASS_LABELS[grade_label],
         "destination": destination,
+        "auto_retrain_started": auto,
         "total_user_uploads": sum(counts.values()),
         "counts_by_grade": {CLASS_LABELS[g]: counts[g] for g in CLASS_LABELS},
     }

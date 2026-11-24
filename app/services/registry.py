@@ -83,6 +83,33 @@ def get_registry() -> dict:
         return json.load(fh)
 
 
+def install_current_model(source) -> None:
+    """Make ``source`` the served model file, atomically (temp copy + rename).
+
+    Other replicas may load the current model at any moment, so it must never
+    be visible half-written.
+    """
+    tmp = CURRENT_MODEL_PATH.with_suffix(f".{os.getpid()}.tmp")
+    shutil.copyfile(source, tmp)          # copyfile: no metadata (bind-mount safe)
+    os.replace(tmp, CURRENT_MODEL_PATH)
+
+
+def register_version(entry: dict, promote: bool) -> dict:
+    """Append a retrained version to the history; make it active only if ``promote``.
+
+    Every retrain counts (rejected candidates are kept and can be activated later).
+    """
+    registry = get_registry()
+    registry["history"].append(entry)
+    if entry.get("type") == "retrained":
+        registry["retrain_count"] = registry.get("retrain_count", 0) + 1
+        registry["last_retrained"] = entry.get("created_at", _now_iso())
+    if promote:
+        registry["active_version"] = entry["version"]
+    _write_registry(registry)
+    return registry
+
+
 def update_registry(new_entry: dict, active_version: str) -> dict:
     """Append a history entry, promote ``active_version``, bump retrain count.
 

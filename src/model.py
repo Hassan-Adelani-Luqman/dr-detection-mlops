@@ -62,8 +62,9 @@ def fine_tune(model: tf.keras.Model, train_ds, val_ds, epochs: int,
     """
     stop = tf.keras.callbacks.EarlyStopping(
         monitor="val_loss", patience=early_stop_patience, restore_best_weights=True)
+    # shuffle=False: the tf.data pipeline already shuffles each epoch.
     return model.fit(train_ds, validation_data=val_ds, epochs=epochs,
-                     callbacks=[stop, *callbacks], verbose=0)
+                     callbacks=[stop, *callbacks], shuffle=False, verbose=0)
 
 
 def _clean(value):

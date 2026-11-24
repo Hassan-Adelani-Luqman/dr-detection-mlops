@@ -21,6 +21,29 @@ router = APIRouter()
 templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
 
 
+def _history(registry: dict, baseline: dict | None) -> list:
+    """Version history with each version's held-out metrics and decision.
+
+    Retrained versions carry the metrics measured when they were trained; the
+    base version uses the committed baseline measurement on the same 550 images.
+    """
+    rows = []
+    for entry in registry["history"]:
+        h = dict(entry)
+        h.setdefault("train_accuracy", h.get("final_accuracy"))   # older entries
+        if h.get("eval_candidate"):
+            c = h["eval_candidate"]
+            h["heldout"] = {"qwk": c["qwk"], "accuracy": c["accuracy"],
+                            "n": h.get("eval_n"), "source": h.get("eval_source")}
+        elif h.get("type") == "base" and baseline:
+            h["heldout"] = {"qwk": baseline["qwk"], "accuracy": baseline["accuracy"],
+                            "n": baseline["n"], "source": "scripts/evaluate_model.py"}
+        else:
+            h["heldout"] = None
+        rows.append(h)
+    return rows
+
+
 @router.get("/insights", response_class=HTMLResponse)
 async def insights_page(request: Request):
     return templates.TemplateResponse(request, "insights.html")
@@ -29,6 +52,7 @@ async def insights_page(request: Request):
 @router.get("/api/insights")
 async def api_insights(db: Session = Depends(get_db)):
     registry = get_registry()
+    baseline = load_baseline_metrics()
     grades = sorted(CLASS_LABELS)
     user_counts = counts_by_grade(db, "user")
     seed_counts = counts_by_grade(db, "seed")
@@ -48,12 +72,12 @@ async def api_insights(db: Session = Depends(get_db)):
             "eval_set": sum(eval_counts.values()),
             "aptos_original": sum(APTOS_DISTRIBUTION.values()),
         },
-        "baseline_metrics": load_baseline_metrics(),
+        "baseline_metrics": baseline,
         "dataset_features": load_dataset_insights(),
         "model": {
             "active_version": registry["active_version"],
             "retrain_count": registry["retrain_count"],
             "last_retrained": registry["last_retrained"],
         },
-        "history": registry["history"],
+        "history": _history(registry, baseline),
     }

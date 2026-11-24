@@ -97,15 +97,42 @@ Retraining demonstrates the full MLOps loop while protecting the original model.
    they can never drift apart.
 3. **Fine-tune from a pre-trained base** — the current model is loaded as the
    pre-trained base and its convolutional backbone (layers up to global pooling)
-   is **frozen**; only the classifier head trains. This keeps retraining fast on
+   is **frozen**; only the classifier head trains. The pool is split 80/20 into
+   train and validation, **stratified by grade**. This keeps retraining fast on
    CPU and, combined with a low learning rate and the balanced replay buffer,
    prevents catastrophic forgetting.
-4. **Version & promote** — the retrained model is written via
-   `staging → versioned snapshot → current (active)`. A new entry is appended to
-   `models/model_registry.json` and promoted to active. **`exp5_base.keras` is
-   never written to** — verified by an automated base-model-integrity test.
-5. **Hot-swap** — the served model is reloaded under a lock so in-flight
-   predictions are never served a half-swapped model.
+4. **Evaluate in production** — the new model *and the model currently being
+   served* are both scored on the **held-out evaluation set** (the 550 test-split
+   images, plus any images uploaded to the evaluation set). Neither has trained on
+   these images, so the comparison is fair.
+5. **Promote or keep** — the new model replaces the current one unless its QWK
+   drops by more than 0.01 or its Grade 3+4 recall by more than 0.05
+   (`PROMOTION_QWK_TOLERANCE`, `PROMOTION_RECALL_TOLERANCE`). Either way it is
+   saved as a version (`models/versions/`) with its held-out metrics and the
+   reason for the decision in `models/model_registry.json`, so a rejected model
+   can still be activated by hand. **`exp5_base.keras` is never written to**,
+   which the end-to-end retraining tests check by hashing it.
+6. **Hot-swap** — a promoted model is installed atomically and reloaded under a
+   lock, so in-flight predictions never see a half-swapped model; other
+   containers pick up the new version before their next prediction.
+
+The Retrain page shows each stage live, the epoch-by-epoch metrics, the
+decision, and a side-by-side comparison of the two models. It also recommends
+retraining once `RETRAIN_TRIGGER_THRESHOLD` (default 20) new labelled images
+have been uploaded since the last retrain; with `AUTO_RETRAIN=true` such an
+upload starts the retrain itself.
+
+**Example run** (local, 200-image replay buffer, 8 epochs, about 4 minutes):
+
+| Held-out metric (550 images) | `v1_base` (served) | Retrained candidate | Change |
+|---|---:|---:|---:|
+| QWK | 0.588 | 0.594 | +0.006 |
+| Grade 3+4 recall | 0.390 | 0.424 | +0.034 |
+| Accuracy | 0.618 | 0.635 | +0.016 |
+| Weighted F1 | 0.625 | 0.667 | +0.042 |
+| AUC | 0.839 | 0.844 | +0.005 |
+
+Decision: promoted (QWK improved and Grade 3+4 recall rose).
 
 ### Why a replay buffer?
 
@@ -133,7 +160,8 @@ split (seed 42), and checks that they never overlap:
 - `exp5_current.keras` — the active served model (copied from base on first run).
 - `models/versions/*.keras` — an immutable snapshot per retrain.
 - `models/model_registry.json` — tracks the active version, retrain count, and
-  full history (samples trained on, accuracy, timestamps).
+  full history (training data per grade, held-out metrics of the new and the
+  previous model, the promotion decision and its reason, timestamps).
 
 Any version — including the original `v1_base` — can be promoted back to active
 from the **Insights** page with one click.

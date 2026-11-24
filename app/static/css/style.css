@@ -202,6 +202,24 @@ code { background: var(--card-2); padding: 0.1rem 0.4rem; border-radius: 4px; co
 }
 .done-list { line-height: 1.7; }
 
+/* ---- Retrain: banners, stages, comparison ---- */
+.banner { margin: 1rem 0 0.4rem; padding: 0.8rem 1rem; border-radius: 8px; line-height: 1.5;
+  background: var(--card-2); border: 1px solid var(--border); color: var(--muted); }
+.banner-go { background: rgba(46, 125, 50, 0.18); border-color: #2e7d32; color: #c8e6c9; }
+.banner-hold { background: rgba(250, 178, 25, 0.12); border-color: #c98500; color: #ffe0a3; }
+.stages { margin: 0.4rem 0 0.8rem; padding-left: 1.3rem; line-height: 1.9; color: var(--muted); }
+.stages li.done { color: var(--text); }
+.stages li.done::marker { content: "✓  "; color: #a5d6a7; }
+.stages li.current { color: var(--text); font-weight: 700; }
+.stages li.current::marker { content: "●  "; color: var(--accent); }
+.compare td:nth-child(n+2), .compare th:nth-child(n+2) { text-align: right; white-space: nowrap; }
+.delta { font-variant-numeric: tabular-nums; color: var(--muted); }
+.delta.up { color: #a5d6a7; }
+.delta.down { color: #ff8a80; }
+.decision-tag { font-size: 0.8rem; font-weight: 600; white-space: nowrap; }
+.decision-tag.promoted { color: #a5d6a7; }
+.decision-tag.held { color: #ffe0a3; }
+
 /* ---- Insights ---- */
 .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 1rem; margin-bottom: 1.25rem; }
