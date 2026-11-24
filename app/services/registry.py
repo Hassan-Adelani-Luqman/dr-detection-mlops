@@ -41,7 +41,11 @@ def init_registry() -> dict:
                 f"Base model not found at {BASE_MODEL_PATH}. Cannot initialise."
             )
         # copyfile (not copy2): avoid EPERM from metadata copy on bind mounts.
-        shutil.copyfile(BASE_MODEL_PATH, CURRENT_MODEL_PATH)
+        # Copy to a temp name then rename, so another replica starting at the
+        # same time can never load a half-written model file.
+        tmp = CURRENT_MODEL_PATH.with_suffix(f".{os.getpid()}.tmp")
+        shutil.copyfile(BASE_MODEL_PATH, tmp)
+        os.replace(tmp, CURRENT_MODEL_PATH)
 
     if not REGISTRY_PATH.exists():
         registry = {
@@ -65,7 +69,7 @@ def init_registry() -> dict:
 
 def _write_registry(registry: dict) -> None:
     """Atomically write the registry JSON (temp file + os.replace)."""
-    tmp = REGISTRY_PATH.with_suffix(".json.tmp")
+    tmp = REGISTRY_PATH.with_suffix(f".{os.getpid()}.json.tmp")
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(registry, fh, indent=2)
     os.replace(tmp, REGISTRY_PATH)

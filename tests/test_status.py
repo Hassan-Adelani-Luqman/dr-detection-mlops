@@ -69,3 +69,32 @@ def test_every_page_shows_the_uptime_pill(client):
     for path in ("/", "/predict", "/upload", "/retrain", "/insights"):
         assert 'id="status-pill"' in client.get(path).text, path
     assert 'id="model-status"' in client.get("/insights").text
+
+
+def test_concurrent_predictions_are_capped(monkeypatch):
+    """Admission control: at most PREDICT_CONCURRENCY requests decode/predict at once."""
+    import threading
+    import time
+
+    active, peak, guard = 0, 0, threading.Lock()
+
+    def slow_infer(_x):
+        nonlocal active, peak
+        with guard:
+            active += 1
+            peak = max(peak, active)
+        time.sleep(0.05)
+        with guard:
+            active -= 1
+        return {}
+
+    monkeypatch.setattr(model_service, "_slots", threading.BoundedSemaphore(2))
+    monkeypatch.setattr(model_service, "_infer", slow_infer)
+    monkeypatch.setattr(model_service, "preprocess_image_bytes", lambda data: data)
+    threads = [threading.Thread(target=model_service.predict_bytes, args=(b"x",))
+               for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert peak == 2

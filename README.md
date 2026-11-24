@@ -143,11 +143,26 @@ from the **Insights** page with one click.
 
 ```bash
 docker compose up --build
-# open http://localhost:8000
+# open http://localhost:8000        (APP_PORT=8080 docker compose up ... if 8000 is taken)
 ```
 
-Compose mounts `./models` and `./data` as volumes, so uploads, the database, and
-retrained versions persist across restarts.
+Compose runs an **nginx load balancer** (`lb`) in front of the app (`web`). To
+scale out:
+
+```bash
+docker compose up -d --scale web=3
+docker compose restart lb            # nginx picks up the new replicas
+```
+
+Each replica is limited to one CPU (`WEB_CPUS`, default 1.0) with single-threaded
+TensorFlow, so every extra container adds one CPU of inference capacity. Every
+response carries an `X-Served-By` header naming the container that served it.
+Replicas share the `./models` and `./data` volumes (uploads, the database, the
+registry and retrained versions persist across restarts) and stay on the same
+model version: each checks the registry before predicting and reloads if another
+replica retrained or rolled back. **Retrain with a single replica**: retraining
+progress is held in the memory of the replica that runs it, so with several
+replicas the status page may poll a different one.
 
 ### Without Docker
 
@@ -216,6 +231,76 @@ sleep when idle; the first request after inactivity takes 30–60 s.
 
 ---
 
+## Flood Request Simulation (Locust) — Results
+
+**Setup.** [Locust](https://locust.io) (`loadtest/locustfile.py`) simulates users
+who each upload a held-out fundus photograph (20 images, mean 2.4 MB) to
+`/api/predict`, wait 0.5–1.5 s and repeat; one request in eleven is a `/health`
+check. The app runs in Docker behind an **nginx round-robin load balancer** with
+**1, 2 and 3 containers**, each limited to one CPU with single-threaded
+TensorFlow. Every combination ran for 2 minutes at **10, 25 and 50 users**
+(ramping 5 users/s) on a 4-CPU, 15 GB laptop that also ran Locust and nginx
+(`loadtest/results/environment.txt`).
+
+![Throughput and 95th-percentile latency against the number of containers](loadtest/results/latency_vs_containers.png)
+
+| Containers | Users | Predictions | Failures | Throughput (pred/s) | Median (ms) | p95 (ms) | p99 (ms) | Split across containers | CPU per container |
+|---:|---:|---:|---:|---:|---:|---:|---:|:---|:---|
+| 1 | 10 | 156 | 0 (0.0%) | 1.31 | 5,900 | 12,000 | 13,000 | 100% | 104% |
+| 1 | 25 | 137 | 0 (0.0%) | 1.15 | 18,000 | 27,000 | 27,000 | 100% | 98% |
+| 1 | 50 | 152 | 0 (0.0%) | 1.29 | 29,000 | 43,000 | 48,000 | 100% | 102% |
+| 2 | 10 | 502 | 0 (0.0%) | 4.21 | 1,100 | 2,600 | 3,300 | 50% / 50% | 107% / 96% |
+| 2 | 25 | 522 | 0 (0.0%) | 4.38 | 3,700 | 9,400 | 10,000 | 51% / 49% | 78% / 104% |
+| 2 | 50 | 542 | 0 (0.0%) | 4.55 | 8,300 | 14,000 | 15,000 | 52% / 48% | 102% / 101% |
+| 3 | 10 | 614 | 0 (0.0%) | 5.18 | 670 | 1,900 | 2,700 | 33% / 34% / 34% | 70% / 100% / 75% |
+| 3 | 25 | 681 | 0 (0.0%) | 5.71 | 2,300 | 7,900 | 8,900 | 35% / 34% / 31% | 99% / 99% / 105% |
+| 3 | 50 | 690 | 0 (0.0%) | 5.79 | 7,000 | 10,000 | 11,000 | 34% / 33% / 34% | 99% / 103% / 88% |
+
+Latencies are client-side, as Locust measured them; "split" comes from the
+`X-Served-By` header each container adds to its responses.
+
+**What the numbers show**
+
+- **No failures** in any of the 9 local runs (3,996 predictions).
+- **The load balancer spreads requests evenly**: 50/50 with two containers,
+  about a third each with three.
+- **Scaling out raises throughput and cuts latency.** At 50 users, throughput
+  goes 1.3 → 4.5 → 5.8 predictions/s and p95 latency 43 s → 14 s → 10 s; at 10
+  users the median falls from 5.9 s to 1.1 s to 0.67 s.
+- **Each container is CPU-bound.** Every container ran at about 100% of its CPU,
+  so beyond saturation more users only lengthen the queue: one container serves
+  1.15–1.31 predictions/s at 10, 25 and 50 users while its latency climbs.
+- **The third container adds less** (+27% at 50 users) because the 4-core host is
+  then running three saturated containers plus Locust and nginx.
+- **Caveat:** a lone container managed 1.15–1.5 predictions/s across runs, while
+  each of two containers managed about 2.2/s. We did not isolate why, so the 1 → 2 jump
+  overstates what one extra container adds by itself; the 2 → 3 step and the
+  latency drops are the fairer reading.
+
+**What the test caught.** The first run, kept in
+`loadtest/results/run1_no_admission_control/`, showed an overloaded single
+container getting *slower* as load rose: 1.31 → 0.98 → 0.74 predictions/s at
+10/25/50 users. Dozens of request threads were decoding multi-megabyte images at
+once and starving the inference. Capping each container at two concurrent
+decode-and-predict operations (`PREDICT_CONCURRENCY`, admission control in
+`app/services/model_service.py`) keeps it at capacity under overload: 1.29/s at
+50 users, with p95 latency 43 s instead of 74 s.
+
+**Cloud: Render free tier** (one instance, 0.1 CPU, 512 MB; 5 users for 1
+minute, images ≤ 1.1 MB): 35 predictions at 0.6/s, median 5.9 s, p95 13 s, and
+1 failure (an HTTP 502 from Render's proxy). The first request after the instance
+had been idle took 58 s (cold start). Raw results are in
+`loadtest/results/cloud_render/`.
+
+**Reproduce**
+
+```bash
+python loadtest/prepare_images.py               # copy 20 held-out images
+APP_PORT=8080 ./loadtest/run_matrix.sh           # ~22 min: 1/2/3 containers x 10/25/50 users
+python loadtest/summarize.py                    # table + chart in loadtest/results/
+locust -f loadtest/locustfile.py --host http://localhost:8000   # interactive web UI
+```
+
 ## Model & notebook
 
 - `models/exp5_base.keras` — the trained 5-class model (1.24 M params, input
@@ -259,6 +344,7 @@ data/
   test/                held-out evaluation set (not committed)
 models/                exp5_base.keras (committed) + runtime versions
 notebook/              training + evaluation notebook
+loadtest/              Locust flood test, nginx config, results
 scripts/
   prepare_data.py      build data/train (replay buffer) + data/test (eval set)
   evaluate_model.py    measure a model on the held-out test split

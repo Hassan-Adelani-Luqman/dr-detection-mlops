@@ -308,70 +308,71 @@ counters.
 
 ## Phase 4 — Locust flood test across multiple containers  (P0, ~5 h incl. runs) — G7
 
-**Status:** ☐ not started
+**Status:** ☑ done 2026-11-24
 
-- [ ] 4.1 Rework `docker-compose.yml`:
-  - `web`: **no fixed host port** (`expose: ["8000"]` only, so `--scale` works),
-    `cpus: "1.0"`, `mem_limit: 1500m`, and environment
-    `TF_NUM_INTRAOP_THREADS=1`, `TF_NUM_INTEROP_THREADS=1`, `OMP_NUM_THREADS=1`. Keep the
-    existing volumes and healthcheck.
-  - New `lb` service: `nginx:1.27-alpine`, `ports: ["8000:80"]`, mounting
-    `loadtest/nginx.conf`, with `depends_on: web: condition: service_healthy`.
-  - With these settings, adding a container adds a whole CPU. Otherwise one TensorFlow
-    process grabs all cores and extra containers barely help.
-  - In `model_service`, also apply the thread settings with `tf.config.threading.*`
-    **before** loading the model.
-- [ ] 4.2 `loadtest/nginx.conf`:
-  - `upstream web_pool { server web:8000; }`. nginx resolves `web` to every replica's IP
-    when it starts.
-  - `client_max_body_size 20m;` (the 1 MB default would reject fundus images),
-    `proxy_read_timeout 600s;`, and pass `X-Served-By` through.
-  - **After scaling, run `docker compose restart lb`** so nginx picks up the new replicas.
-  - `docker compose up` with no flags still gives 1 replica on port 8000, so the README
-    instructions stay valid.
-- [ ] 4.3 `loadtest/locustfile.py`:
-  - `PredictUser(HttpUser)` with `wait_time = between(0.5, 1.5)`.
-  - Task weight 10: `POST /api/predict` with a random image from `loadtest/images/`. Use
-    `catch_response`, and fail on anything other than 200 or a response missing
-    `predicted_grade`.
-  - Task weight 1: `GET /health`.
-  - On test stop, print a count of responses per `X-Served-By` value, which proves
-    round-robin across containers.
-- [ ] 4.4 `loadtest/prepare_images.sh`: copy 20 held-out images from `data/test/` into
-  `loadtest/images/` (gitignored). Use full-size images, so decoding them counts towards
-  the measured latency.
-- [ ] 4.5 `loadtest/run_matrix.sh`. For R in 1 2 3:
-  1. `docker compose up -d --scale web=$R`, then `docker compose restart lb`.
-  2. Wait for `/health`, then send 10 warm-up predictions.
-  3. For U in 10 25 50:
-     `locust -f loadtest/locustfile.py --host http://localhost:8000 --headless -u $U -r 5 -t 2m --csv loadtest/results/r${R}_u${U}`.
-  4. Save `docker stats --no-stream` to `loadtest/results/r${R}_docker_stats.txt`.
+- [x] 4.1 `docker-compose.yml` reworked:
+  - `web` has no host port (`expose: 8000`, so `--scale` works), `cpus: ${WEB_CPUS:-1.0}`,
+    `mem_limit: ${WEB_MEM:-2g}`, and the TF, OMP and `PREDICT_CONCURRENCY` settings. The
+    healthcheck interval is now 10 s.
+  - `lb` runs `nginx:1.27-alpine` on `${APP_PORT:-8000}:80` and waits for `web` to be healthy.
+  - `model_service` applies the TF thread settings with `tf.config.threading` before the
+    model loads.
+  - Safety when several replicas start at once: base → current is copied to a temp file
+    and renamed into place, the registry temp file is per-process, and `init_db` retries
+    when two replicas create the table at the same moment.
+- [x] 4.2 `loadtest/nginx.conf`: round-robin `upstream web:8000`,
+  `client_max_body_size 20m`, 600 s timeouts. After scaling, run `docker compose restart lb`.
+- [x] 4.3 `loadtest/locustfile.py`:
+  - Weighted tasks: predict ×10 (random held-out image, fails on a non-200 status or a
+    missing `predicted_grade`) and `/health` ×1. Waits 0.5–1.5 s between requests.
+  - Counts responses per `X-Served-By` and saves them as `<prefix>_served_by.json`.
+  - `LOADTEST_MAX_KB` filters images by size, for remote hosts.
+- [x] 4.4 `loadtest/prepare_images.py` (Python rather than shell): 20 held-out images,
+  4 per grade, mean 2.4 MB, gitignored.
+- [x] 4.5 `loadtest/run_matrix.sh`: settings via env (`APP_PORT`, `REPLICAS`, `USERS`,
+  `DURATION`, `OUT`, `STATS_AFTER`); writes `environment.txt`, warms up each replica, and
+  takes a `docker stats` snapshot 60 s into each run.
+- [x] 4.6 `loadtest/summarize.py [dir]` writes `summary.md` and
+  `latency_vs_containers.png`.
+  - The chart has two panels (throughput, p95 latency; one axis each) and a one-hue
+    ordinal blue ramp for 10/25/50 users that passed the palette validator. Lines are
+    direct-labelled only when clear of every neighbour, otherwise the legend carries them.
+  - The headline is computed from the data.
+- [x] 4.7 Cloud: Render (main-branch code, 0.1 CPU, 512 MB), 5 users, 1 min, images ≤ 1.1 MB.
+  Result: 35 predictions at 0.6/s, median 5.9 s, p95 13 s, 1 failure (HTTP 502 from
+  Render's proxy), 58 s cold start. Saved in `loadtest/results/cloud_render/`.
+- [x] 4.8 Committed: the per-run stats, failures, `served_by`, `docker_stats`,
+  `environment.txt`, `summary.md` and the chart. Gitignored with recursive `**`
+  patterns: history, exceptions, logs, HTML and `loadtest/images/`.
+- [x] 4.9 README: a **"Flood Request Simulation (Locust) — Results"** section (setup,
+  chart, table, findings, the caveat, what the test caught, the cloud row, how to
+  reproduce). The Docker setup section explains scaling and `APP_PORT`.
+- [x] 4.10 The "retrain with a single replica" caveat is in the README and the
+  docker-compose header.
 
-  The whole matrix takes about 25 minutes. Close other heavy apps first, since about 5 GB
-  of RAM is free.
-- [ ] 4.6 `loadtest/summarize.py`:
-  - Read every `*_stats.csv` and take the `/api/predict` and Aggregated rows.
-  - Write `loadtest/results/summary.md` with: containers, users, requests, failure %,
-    req/s, mean, median, p95 and p99 latency (ms).
-  - Plot `loadtest/results/latency_vs_containers.png`: p95 latency and req/s against the
-    number of containers, one line per user count.
-- [ ] 4.7 Cloud run: warm up Render, then run Locust against it with `-u 10 -r 2 -t 1m`.
-  Report it as its own row ("Render free tier, 1 instance, 0.1 CPU / 512 MB").
-- [ ] 4.8 Commit `summary.md`, the chart and the `*_stats.csv` files. Gitignore
-  `*_stats_history.csv`, `*.html` and `loadtest/images/`.
-- [ ] 4.9 README section titled **"Flood Request Simulation (Locust) — Results"**, matching
-  the brief's wording. Cover: the setup (4-core host, 1 CPU per container, nginx
-  round-robin), the results table, the chart, 3–5 sentences on what the numbers show
-  (throughput against containers, latency at a fixed number of users, where it saturates,
-  failures), and how to reproduce it.
-  - A rough estimate from the audit: about 145 ms of CPU per inference, plus decoding a
-    multi-MB PNG, so roughly 4–6 req/s per container. **Report what you measure, not this.**
-- [ ] 4.10 Document the caveat: retraining status is kept in each container's memory, so
-  **scale to 1 container before retraining**. A stretch goal is to move it into
-  `data/retrain_status.json` with a file lock.
+**Found by the test and fixed (not in the original plan): admission control.**
+- The first matrix (kept in `loadtest/results/run1_no_admission_control/`) showed one
+  overloaded container getting *slower*: 1.31 → 0.98 → 0.74 predictions/s at 10/25/50
+  users, with memory rising from 0.8 to 1.4 GB.
+- Cause: about 40 request threads decoded 2.4 MB images at the same time and starved the
+  inference.
+- Fix: `model_service` now holds a `BoundedSemaphore(PREDICT_CONCURRENCY=2)` around
+  decode + predict, and a test checks the cap. With it, one container holds 1.15–1.31/s
+  under overload and the p95 at 50 users drops from 74 s to 43 s.
 
-**Done when:** all 9 local runs and the cloud run have CSVs, the summary table and chart
-are in the README, and the `X-Served-By` counts show load spread over every container.
+**Final results** (4-CPU laptop, 1 CPU per container, 2 min per run, 0 failures across
+3,996 predictions, an even split across containers):
+
+| Containers | 10 users | 25 users | 50 users | p95 at 50 users |
+|---|---|---|---|---|
+| 1 | 1.31/s | 1.15/s | 1.29/s | 43 s |
+| 2 | 4.21/s | 4.38/s | 4.55/s | 14 s |
+| 3 | 5.18/s | 5.71/s | 5.79/s | 10 s |
+
+- Open caveat: a lone container runs at 1.15–1.5/s, while each of two runs at about 2.2/s.
+  A repeat run ruled out run order, but the cause was not isolated. The README says so.
+- Port 8000 on this machine is used by another process, so the runs used `APP_PORT=8080`.
+
 **Commit:** `feat: add Locust load tests with nginx-balanced replicas and results`
 
 ---

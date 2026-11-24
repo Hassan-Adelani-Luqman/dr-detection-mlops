@@ -1,19 +1,48 @@
+# Local deployment: an nginx load balancer in front of one or more app replicas.
+#
+#   docker compose up --build                     # 1 replica, http://localhost:8000
+#   APP_PORT=8080 docker compose up -d            # if port 8000 is taken
+#   docker compose up -d --scale web=3            # 3 replicas behind nginx
+#   docker compose restart lb                     # after scaling: nginx re-reads replica IPs
+#
+# Each replica is limited to one CPU (WEB_CPUS) and TensorFlow uses one thread,
+# so every extra container adds one CPU of inference capacity. Replicas share
+# ./models and ./data, and stay on the same model version (each checks the
+# registry before predicting). Retrain with a single replica: retraining
+# progress is held in the memory of the replica that runs it.
 services:
   web:
     build: .
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     environment:
       - PORT=8000
+      - TF_NUM_INTRAOP_THREADS=${TF_THREADS:-1}
+      - TF_NUM_INTEROP_THREADS=1
+      - OMP_NUM_THREADS=${TF_THREADS:-1}
+      - PREDICT_CONCURRENCY=${PREDICT_CONCURRENCY:-2}
+    cpus: ${WEB_CPUS:-1.0}
+    mem_limit: ${WEB_MEM:-2g}
     volumes:
       # Persist uploaded images, the database, the registry, and retrained
-      # model versions across container restarts.
+      # model versions across container restarts (shared by all replicas).
       - ./models:/app/models
       - ./data:/app/data
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
-      interval: 30s
+      interval: 10s
       timeout: 5s
       retries: 3
       start_period: 40s
+    restart: unless-stopped
+
+  lb:
+    image: nginx:1.27-alpine
+    ports:
+      - "${APP_PORT:-8000}:80"
+    volumes:
+      - ./loadtest/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      web:
+        condition: service_healthy
     restart: unless-stopped

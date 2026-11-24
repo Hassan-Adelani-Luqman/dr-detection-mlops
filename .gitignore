@@ -45,3 +45,11 @@ tests/sample_images/*
 demo_images/
 
 # NOTE: models/exp5_base.keras IS committed (needed for deployment).
+
+# Load testing: images are APTOS (not redistributable); keep the summarised
+# results, drop Locust's bulky per-second history and raw logs.
+loadtest/images/
+loadtest/results/**/*_stats_history.csv
+loadtest/results/**/*_exceptions.csv
+loadtest/results/**/*.log
+loadtest/results/**/*.html

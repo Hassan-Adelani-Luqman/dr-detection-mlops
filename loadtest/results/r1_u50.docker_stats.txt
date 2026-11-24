@@ -1,0 +1,2 @@
+dr-detection-mlops-web-1	102.34%	1.909GiB / 2GiB
+dr-detection-mlops-lb-1	1.59%	10.24MiB / 15.5GiB

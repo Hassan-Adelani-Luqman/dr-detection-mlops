@@ -5,6 +5,7 @@ touches the database from outside the request thread. SQLite is otherwise
 single-writer, which is fine for this app's load.
 """
 from sqlalchemy import create_engine
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 from app.config import DATABASE_URL
@@ -21,7 +22,12 @@ def init_db() -> None:
     # Import models so they register on Base.metadata before create_all.
     from app.database import models  # noqa: F401
 
-    Base.metadata.create_all(bind=engine)
+    try:
+        Base.metadata.create_all(bind=engine)
+    except OperationalError:
+        # Several replicas starting together can race to create the same
+        # table; the loser just retries and finds it already there.
+        Base.metadata.create_all(bind=engine)
 
 
 def get_db():
