@@ -179,57 +179,75 @@ imports from `app/`.
 
 ## Phase 2 — Correct metrics, data separation and held-out demo images  (P0, ~3 h) — G2, G3, G4
 
-**Status:** ☐ not started
+**Status:** ☑ done 2026-11-24
 
-- [ ] 2.1 `scripts/evaluate_model.py --model models/exp5_base.keras --aptos-dir data/raw --out models/baseline_metrics.json`
-  - Rebuild the test split with `src.preprocessing.stratified_split` and score it with
-    `src.model.evaluate_model`.
-  - Write to the JSON file: the metrics, the confusion matrix, `n_test`, a description of
-    the split, the model's SHA-256, and a timestamp. **Commit this JSON.**
-  - **Must reproduce, within ±0.001:** accuracy 0.6182, QWK 0.5879, AUC 0.8386, weighted
-    F1 0.6252, `grade34_recall` 0.390, n = 550.
-- [ ] 2.2 `app/config.py`: load `BASELINE_METRICS` from `models/baseline_metrics.json`
-  instead of hard-coding it. The Insights metric cards then show accuracy, QWK, AUC,
-  weighted F1 and Grade 3/4 recall, with the note "measured on 550 held-out images by
-  `scripts/evaluate_model.py`".
-- [ ] 2.3 README: replace 0.711 / 0.673 / 0.846 / 0.372 (lines ~193–194 and ~217) with the
-  measured values and point to `baseline_metrics.json`.
-- [ ] 2.4 Rename `scripts/seed_data.py` to `scripts/prepare_data.py` and extend it:
-  - `--train-per-grade 40`: a stratified replay buffer drawn **only from training-split
-    ids**. Copy the images to `data/train/` and add database rows with `source="seed"`.
-  - `--eval`: all 550 **test-split** images go to `data/test/` with database rows
-    `source="eval"`. Write `data/test/manifest.csv` (`id_code,diagnosis`) and **commit it**.
-  - `--force`: delete the old seed and eval rows and files, including the legacy
-    `data/uploads/seed_*`.
-  - Copy one test-split image per grade into `tests/sample_images/`.
-  - Store `image_path` **relative to `DATA_DIR`** (for example `train/seed_ab12.png`).
-  - In `retrain_service` resolve paths like this: relative to `DATA_DIR` first; for older
-    rows that hold only a filename, fall back to `UPLOADS_DIR`.
-- [ ] 2.5 Training must **exclude `source="eval"`** rows (filter in `build_dataset`).
-  Insights counts must report seed, user and eval rows separately.
-- [ ] 2.6 New `tests/test_data_split.py`:
-  - No `id_code` in `data/test/manifest.csv` appears among the seed rows (the `filename`
-    column holds the original APTOS file name).
-  - The training query never returns eval rows.
-- [ ] 2.7 Reset local runtime state: delete the registry, `exp5_current.keras`,
-  `models/versions/*.keras` and `data/app.db` (they are already backed up in 0.5). Restart
-  the app, which re-initialises at `v1_base`. Then run
-  `python -m scripts.prepare_data --train-per-grade 40 --eval --force`.
-- [ ] 2.8 New `scripts/pick_demo_images.py`:
-  - Scores the test split with the base model.
-  - For each grade, copies the top-3 **correctly predicted held-out** images to
-    `demo_images/heldout_grade{g}_{id}.png` (still gitignored).
-  - Deletes the old training-split demo images.
-  - Reference picks from the audit: grade 0 `cd314653a4d8` (1.00), grade 1 `05a5183c92d0`
-    (0.69), grade 3 `e1fb532f55df` and `b019a49787c1` (0.84). Grades 2 and 4 peak at about
-    0.36 and 0.33 confidence, so **don't demo those grades**.
+- [x] 2.1 `scripts/evaluate_model.py` writes `models/baseline_metrics.json` (committed).
+  - Contents: the metrics, confusion matrix, split description, model SHA-256 and a
+    timestamp.
+  - Reproduced exactly: accuracy 0.6182, QWK 0.5879, AUC 0.8386, weighted F1 0.6252,
+    `grade34_recall` 0.3899, n = 550. It takes about 2 min on CPU.
+- [x] 2.2 `app/config.py`: `load_baseline_metrics()` reads the JSON (no more hard-coded
+  numbers).
+  - Insights shows 5 metric cards (QWK, accuracy, AUC, weighted F1, Grade 3+4 recall)
+    with the note "Measured on 550 held-out test images … by
+    `scripts/evaluate_model.py`", and a fallback message if the file is missing.
+- [x] 2.3 README:
+  - Old numbers replaced by a measured-performance table linking the JSON, with a
+    sentence explaining the gap with the notebook's printed Exp 5 row.
+  - The limitation now reads Grade 3+4 recall 0.390 (Proliferative 0.159).
+  - New sections: "Training pool vs. held-out evaluation set" and "Getting the data" (the
+    Kaggle steps and the three scripts).
+  - The install step now uses `requirements-dev.txt`.
+- [x] 2.4 `scripts/seed_data.py` renamed to `scripts/prepare_data.py` with `git mv`, and
+  rewritten:
+  - Replay buffer: 40 per grade from **training-split ids only**, copied to `data/train/`
+    with rows `source="seed"` and `image_path="train/<id>.png"`.
+  - Evaluation set: all 550 test-split images in `data/test/` with rows
+    `source="eval"` and `image_path="test/<id>.png"`, plus `data/test/manifest.csv`
+    (LF line endings, committed).
+  - Deviation from the plan: the evaluation set is built **by default** (`--no-eval`
+    skips it) instead of behind an `--eval` flag.
+  - `--force` rebuilds either pool and removes the legacy `data/uploads/seed_*` files. It
+    only removes *prepared* eval rows (`test/…`), so later user-uploaded eval images
+    survive.
+  - The script ends with an overlap check between the seed ids and the test split, and
+    aborts if any id overlaps.
+  - Deviation from the plan: copying the test samples moved to `pick_demo_images`, because
+    choosing samples the model grades correctly needs the model.
+- [x] 2.5 New `app/services/pool.py`:
+  - `training_rows()` (seed + user, **never eval**), `eval_rows()`, `counts_by_grade()`,
+    and `resolve_image_path()`.
+  - Path rules: a path relative to `data/` resolves under `DATA_DIR`; a bare filename
+    under `UPLOADS_DIR`; foreign absolute and Windows paths fall back to their file name
+    in uploads.
+  - `build_dataset()` in the retrain service uses it. Upload and Insights use
+    `counts_by_grade`.
+  - Insights adds a "Held-out eval set" stat, and its distribution chart hides empty pools.
+- [x] 2.6 `tests/test_data_split.py`: the manifest has 550 rows with the right grade counts
+  and equals the notebook's test split; seed picks come only from the training split;
+  `training_rows` never returns eval rows; and the path-resolution rules hold.
+- [x] 2.7 Local state reset:
+  - The registry, `exp5_current`, the versions, `app.db` and `data/uploads/*` were deleted.
+    Their pre-fixes copies are in `backup/pre-fixes/`; the v4 from the Phase 1 test
+    retrain was discarded.
+  - `prepare_data` then ran: 200 seed rows and 550 eval rows. The app re-initialises at
+    `v1_base`.
+- [x] 2.8 `scripts/pick_demo_images.py` scores the 550 held-out images and writes the
+  top-3 correct per grade to `demo_images/heldout_grade{g}_{id}.png`, plus the top-1 per
+  grade to `tests/sample_images/grade_{g}.png`. The old training-split images are in
+  `backup/pre-fixes/`. Results (correct / total, best confidence):
 
-**Done when:**
-- `baseline_metrics.json` matches the numbers in 2.1.
-- The disjointness test passes and Insights shows the measured metrics.
-- The registry is at `v1_base`, with 200 seed rows (all from the training split) and 550
-  eval rows.
+  | Grade | Correct | Top picks (confidence) |
+  |---|---|---|
+  | 0 | 242/271 | `e3cd96cb094c`, `e03a74e7d74f`, `d4583e9525dc` (all 1.00) |
+  | 1 | 14/56 | `05a5183c92d0` (0.69), `cc9270f06b65` (0.63), `531b39880c32` (0.57) |
+  | 2 | 59/150 | `ba2624883599` (0.36) — weak, avoid in the video |
+  | 3 | 18/29 | `e1fb532f55df` (0.84), `b019a49787c1` (0.84), `4360a112db10` (0.83) |
+  | 4 | 7/44 | `d51b3fe0fa1b` (0.33) — weak, avoid in the video |
 
+**Done when** (checked): `baseline_metrics.json` matches 2.1, `pytest` → 30 passed,
+`build_dataset` sees 200 images (160 train / 40 val, 0 skipped, no eval rows), and the app
+at `v1_base` serves the measured metrics and predicts the held-out demo images correctly.
 **Commit:** `fix: report measured held-out metrics for the deployed model; separate train and eval data`
 
 ---

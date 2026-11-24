@@ -13,8 +13,8 @@
 <div class="grid-2">
   <div class="card">
     <h3>Class Distribution (% of each dataset)</h3>
-    <p class="muted">Normalised so the APTOS set (3,662 images) and the training
-      pool are comparable. Highlights the grade imbalance in the source data.</p>
+    <p class="muted">Normalised so the APTOS set (3,662 images) and the local
+      pools are comparable. Highlights the grade imbalance in the source data.</p>
     <div class="chart-wrap"><canvas id="dist-chart"></canvas></div>
   </div>
 
@@ -66,7 +66,9 @@ function renderStats(d) {
     <div class="stat"><span class="stat-num">${d.totals.user_uploads}</span>
       <span class="stat-label">Your uploads</span></div>
     <div class="stat"><span class="stat-num">${d.totals.seed_buffer}</span>
-      <span class="stat-label">Seed buffer</span></div>`;
+      <span class="stat-label">Seed buffer</span></div>
+    <div class="stat"><span class="stat-num">${d.totals.eval_set}</span>
+      <span class="stat-label">Held-out eval set</span></div>`;
 }
 
 function toPct(arr) {
@@ -76,10 +78,15 @@ function toPct(arr) {
 
 function renderDist(d) {
   const ds = d.distributions;
+  // Only draw pools that actually hold images (on a fresh cloud instance the
+  // seed buffer and eval set are empty and would plot as rows of zeros).
   const sets = [
     { label: 'APTOS (original)', data: toPct(ds.aptos_original), color: '#2f80ed' },
-    { label: 'Seed buffer', data: toPct(ds.seed_buffer), color: '#56ccf2' },
   ];
+  if (d.totals.seed_buffer > 0)
+    sets.push({ label: 'Seed buffer (training)', data: toPct(ds.seed_buffer), color: '#56ccf2' });
+  if (d.totals.eval_set > 0)
+    sets.push({ label: 'Held-out eval set', data: toPct(ds.eval_set), color: '#f2994a' });
   if (d.totals.user_uploads > 0)
     sets.push({ label: 'Your uploads', data: toPct(ds.user_uploads), color: '#27ae60' });
 
@@ -99,15 +106,24 @@ function renderDist(d) {
 }
 
 function renderMetrics(m) {
-  document.getElementById('metrics-source').textContent = m.source;
+  const grid = document.getElementById('metric-grid');
+  if (!m) {
+    document.getElementById('metrics-source').textContent =
+      'Baseline metrics not available (run scripts/evaluate_model.py).';
+    grid.innerHTML = '';
+    return;
+  }
+  document.getElementById('metrics-source').textContent = m.source + '.';
+  const fmt = v => (v == null ? '—' : v.toFixed(3));
   const items = [
-    ['Quadratic Weighted Kappa', m.quadratic_weighted_kappa],
+    ['Quadratic Weighted Kappa', m.qwk],
     ['Accuracy', m.accuracy],
-    ['AUC', m.auc],
-    ['Grade 3+4 Recall', m.grade_3_4_recall],
+    ['AUC (one-vs-rest)', m.auc],
+    ['Weighted F1', m.weighted_f1],
+    ['Grade 3+4 Recall', m.grade34_recall],
   ];
-  document.getElementById('metric-grid').innerHTML = items.map(([k, v]) =>
-    `<div class="metric"><span class="metric-val">${v}</span>
+  grid.innerHTML = items.map(([k, v]) =>
+    `<div class="metric"><span class="metric-val">${fmt(v)}</span>
        <span class="metric-key">${k}</span></div>`).join('');
 }
 

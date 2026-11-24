@@ -7,6 +7,7 @@ Values that the container may need to override (database location, uploads
 directory) are read from the environment with sensible local defaults, so the
 same code runs unchanged locally and in Docker.
 """
+import json
 import os
 from pathlib import Path
 
@@ -73,15 +74,31 @@ EARLY_STOP_PATIENCE = 3
 # Original APTOS 2019 train-set class distribution (from the notebook)
 APTOS_DISTRIBUTION = {0: 1805, 1: 370, 2: 999, 3: 193, 4: 295}
 
-# Held-out test metrics from the Intro-to-ML summative evaluation of exp5.
-# Labelled clearly as baseline (pre-retrain) so they are not read as live metrics.
-BASELINE_METRICS = {
-    "quadratic_weighted_kappa": 0.711,
-    "grade_3_4_recall": 0.372,
-    "auc": 0.846,
-    "accuracy": 0.673,
-    "source": "Intro to ML summative — exp5 held-out test set",
-}
+# Held-out metrics of the base model, measured by scripts/evaluate_model.py on
+# the 550 test-split images and committed as models/baseline_metrics.json.
+BASELINE_METRICS_PATH = MODELS_DIR / "baseline_metrics.json"
+
+
+def load_baseline_metrics() -> dict | None:
+    """Headline metrics for the Insights page, or None if the file is missing."""
+    try:
+        report = json.loads(BASELINE_METRICS_PATH.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+    m = report["metrics"]
+    return {
+        "accuracy": m["accuracy"],
+        "qwk": m["qwk"],
+        "auc": m["auc"],
+        "weighted_f1": m["weighted_f1"],
+        "grade34_recall": m["grade34_recall"],
+        "n": m["n"],
+        "evaluated_at": report.get("evaluated_at"),
+        "source": (f"Measured on {m['n']} held-out test images (APTOS 2019, "
+                   f"stratified split, seed {report['split']['seed']}) by "
+                   "scripts/evaluate_model.py"),
+    }
+
 
 # Number of samples the base model was originally trained on (for the registry)
 BASE_TRAINING_SAMPLES = 2562

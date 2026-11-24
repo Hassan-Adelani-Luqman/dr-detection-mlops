@@ -1,0 +1,75 @@
+{
+  "model_file": "models/exp5_base.keras",
+  "model_sha256": "90aa0a0f7d91497a128245001c0167510f93f20ae53135f4597d95d75544f4ba",
+  "evaluated_at": "2026-11-24T04:44:57+00:00",
+  "dataset": "APTOS 2019 Blindness Detection, train.csv",
+  "split": {
+    "subset": "test",
+    "method": "two-stage stratified split, as in the training notebook",
+    "seed": 42,
+    "val_size": 0.15,
+    "test_size": 0.15
+  },
+  "preprocessing": "BGR->RGB, resize 224x224, scale to [0, 1] (src.preprocessing)",
+  "class_labels": [
+    "No DR",
+    "Mild DR",
+    "Moderate DR",
+    "Severe DR",
+    "Proliferative DR"
+  ],
+  "notes": "grade34_recall is the mean of the class-3 and class-4 recall; auc is one-vs-rest macro AUC.",
+  "metrics": {
+    "n": 550,
+    "accuracy": 0.6181818181818182,
+    "qwk": 0.5878934903121587,
+    "auc": 0.8385770630263405,
+    "weighted_f1": 0.6251842611161951,
+    "macro_f1": 0.42587508842981103,
+    "grade34_recall": 0.38989028213166144,
+    "per_class_recall": [
+      0.8929889298892989,
+      0.25,
+      0.3933333333333333,
+      0.6206896551724138,
+      0.1590909090909091
+    ],
+    "confusion_matrix": [
+      [
+        242,
+        2,
+        0,
+        27,
+        0
+      ],
+      [
+        13,
+        14,
+        4,
+        25,
+        0
+      ],
+      [
+        26,
+        13,
+        59,
+        40,
+        12
+      ],
+      [
+        3,
+        2,
+        3,
+        18,
+        3
+      ],
+      [
+        5,
+        5,
+        16,
+        11,
+        7
+      ]
+    ]
+  }
+}

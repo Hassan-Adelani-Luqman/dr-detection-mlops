@@ -17,44 +17,35 @@ Design decisions:
 """
 import shutil
 from datetime import datetime, timezone
-from pathlib import Path
 
 import numpy as np
 import tensorflow as tf
 
 from app.config import (CURRENT_MODEL_PATH, EARLY_STOP_PATIENCE, MIN_SAMPLES,
                         RETRAIN_BATCH_SIZE, RETRAIN_EPOCHS, RETRAIN_LR,
-                        STAGING_MODEL_PATH, UPLOADS_DIR, VERSIONS_DIR)
-from app.database.models import UploadedImage
+                        STAGING_MODEL_PATH, VERSIONS_DIR)
 from app.services import model_service
+from app.services.pool import resolve_image_path, training_rows
 from app.services.registry import get_registry, update_registry
 from src.model import build_finetune_model, fine_tune
 from src.preprocessing import preprocess_image
 
 
 def build_dataset(db_session, batch_size: int = RETRAIN_BATCH_SIZE):
-    """Build train/val tf.data.Datasets from ALL pooled images (seed + user).
+    """Build train/val tf.data.Datasets from the training pool (seed + user).
 
     This is the "preprocess uploaded data" step: every image is run through the
-    same preprocess_image() used at inference time. Rows whose file is missing
-    are skipped rather than crashing the run. Returns
-    (train_ds, val_ds, n_train, n_val).
+    same preprocess_image() used at inference time. Held-out evaluation rows are
+    never included (see app.services.pool). Rows whose file is missing are
+    skipped rather than crashing the run. Returns
+    (train_ds, val_ds, n_train, n_val, skipped).
     """
-    rows = db_session.query(UploadedImage).all()
+    rows = training_rows(db_session)
 
     X, y = [], []
     skipped = 0
     for r in rows:
-        # image_path may be an absolute path recorded in another environment
-        # (e.g. seeded on the Windows host, then read inside the Linux
-        # container). Resolve by filename under the current uploads dir so the
-        # training pool is portable across host/container. Split on BOTH
-        # separators: a PosixPath does not treat "\" as a separator, so a stored
-        # Windows path would otherwise yield the whole string as the "name".
-        path = Path(r.image_path)
-        if not path.exists():
-            base = r.image_path.replace("\\", "/").rsplit("/", 1)[-1]
-            path = UPLOADS_DIR / base
+        path = resolve_image_path(r.image_path)
         try:
             X.append(preprocess_image(path))
             y.append(r.grade_label)

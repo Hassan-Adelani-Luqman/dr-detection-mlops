@@ -12,12 +12,12 @@ from fastapi import (APIRouter, File, Form, HTTPException, Request, UploadFile,
                      Depends)
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.config import APP_DIR, CLASS_LABELS, UPLOADS_DIR
 from app.database.db import get_db
 from app.database.models import UploadedImage
+from app.services.pool import counts_by_grade
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
@@ -34,13 +34,7 @@ def _safe_name(filename: str) -> str:
 
 
 def _counts_by_grade(db: Session) -> dict:
-    rows = (db.query(UploadedImage.grade_label, func.count(UploadedImage.id))
-              .filter(UploadedImage.source == "user")
-              .group_by(UploadedImage.grade_label).all())
-    counts = {g: 0 for g in CLASS_LABELS}
-    for grade, n in rows:
-        counts[grade] = n
-    return counts
+    return counts_by_grade(db, "user")
 
 
 @router.get("/upload", response_class=HTMLResponse)

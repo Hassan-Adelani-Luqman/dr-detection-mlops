@@ -38,7 +38,7 @@ def _sample_images() -> list[Path]:
 requires_samples = pytest.mark.skipif(
     len(_sample_images()) == 0,
     reason="No sample images in tests/sample_images/ "
-           "(run scripts.seed_data to populate).",
+           "(run scripts.prepare_data, then scripts.pick_demo_images).",
 )
 
 

@@ -86,7 +86,8 @@ specialist ophthalmologists are scarce.
 Retraining demonstrates the full MLOps loop while protecting the original model.
 
 1. **Collect** — labelled fundus images are uploaded via the app and saved to the
-   SQLite database, joining a balanced *replay buffer* of seed images.
+   SQLite database, joining a balanced *replay buffer* of seed images. Images in
+   the held-out evaluation set are never part of the training pool.
 2. **Preprocess** — every image in the pool is run through the **exact same**
    preprocessing the model was trained on (BGR→RGB, resize to 224×224,
    scale to `[0, 1]`). The prediction and retraining paths share one function so
@@ -107,12 +108,21 @@ Retraining demonstrates the full MLOps loop while protecting the original model.
 
 Fine-tuning a 5-class classifier on only a handful of uploads collapses the head
 toward whatever grades were uploaded (catastrophic forgetting). To prevent this,
-retraining trains on a **balanced buffer of real images** (40 per grade)
-*together with* new uploads. Seed the buffer from your own APTOS copy:
+retraining trains on a **balanced buffer of real images** (40 per grade, drawn
+only from the notebook's *training* split) *together with* new uploads.
 
-```bash
-python -m scripts.seed_data --aptos-dir /path/to/aptos/raw --per-grade 40
-```
+### Training pool vs. held-out evaluation set
+
+`scripts/prepare_data.py` builds two pools from the notebook's own stratified
+split (seed 42), and checks that they never overlap:
+
+| Pool | Folder | Database `source` | Contents | Used for |
+|------|--------|-------------------|----------|----------|
+| Replay buffer | `data/train/` | `seed` | 40 images per grade from the **training** split | retraining |
+| User uploads | `data/uploads/` | `user` | images uploaded in the app | retraining |
+| Evaluation set | `data/test/` | `eval` | all 550 images of the held-out **test** split | measuring models, never trained on |
+
+`data/test/manifest.csv` lists the evaluation images and their true grades.
 
 ## Model versioning & rollback
 
@@ -144,9 +154,28 @@ retrained versions persist across restarts.
 ```bash
 python -m venv .venv
 # Windows: .\.venv\Scripts\Activate.ps1   |   Unix: source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt      # runtime + tests, Locust, notebook tools
 uvicorn app.main:app --reload
 # open http://localhost:8000
+```
+
+### Getting the data (needed for retraining and evaluation)
+
+Prediction works out of the box. Retraining and the evaluation scripts need the
+APTOS 2019 images, which cannot be redistributed:
+
+1. Accept the competition rules at
+   <https://www.kaggle.com/competitions/aptos2019-blindness-detection>.
+2. Download and unzip into `data/raw/` (so that `data/raw/train.csv` and
+   `data/raw/train_images/` exist), for example with the Kaggle CLI:
+   `kaggle competitions download -c aptos2019-blindness-detection -p data/raw`.
+3. Build the replay buffer and the held-out evaluation set, re-measure the model,
+   and pick demo images it grades correctly:
+
+```bash
+python -m scripts.prepare_data          # data/train (200) + data/test (550)
+python -m scripts.evaluate_model        # -> models/baseline_metrics.json
+python -m scripts.pick_demo_images      # -> demo_images/, tests/sample_images/
 ```
 
 ### Running the tests
@@ -155,8 +184,11 @@ uvicorn app.main:app --reload
 pytest
 ```
 
-Includes prediction, upload, and a **base-model integrity** test asserting the
-original weights are never modified by registry operations.
+Covers preprocessing, prediction, the metrics, the backbone freeze, upload, the
+separation of training and evaluation data, and a **base-model integrity** test
+asserting the original weights are never modified by registry operations. Tests
+that need APTOS images are skipped when `data/raw` or `tests/sample_images` is
+empty.
 
 ---
 
@@ -190,8 +222,23 @@ sleep when idle; the first request after inactivity takes 30–60 s.
   224×224×3, output 5 classes). Committed; copied to `exp5_current.keras` at
   startup.
 - `notebook/diabetic_retinopathy_detection.ipynb` — the notebook that created
-  and evaluated the model. Baseline held-out metrics: QWK **0.711**,
-  accuracy **0.673**, AUC **0.846**, Grade 3+4 recall **0.372**.
+  and evaluated the model.
+
+### Measured performance of the deployed model
+
+Measured on the **550 held-out test images** (the notebook's stratified split,
+seed 42) with the app's own preprocessing, by `scripts/evaluate_model.py`.
+Full results, including the confusion matrix, are in
+[`models/baseline_metrics.json`](models/baseline_metrics.json).
+
+| Accuracy | QWK | AUC (one-vs-rest) | Weighted F1 | Grade 3+4 recall |
+|---------:|----:|------------------:|------------:|-----------------:|
+| 0.618 | 0.588 | 0.839 | 0.625 | 0.390 |
+
+Grade 3+4 recall is the mean of the Severe (0.621) and Proliferative (0.159)
+recalls. These numbers come from the committed model file itself; they differ
+from the Exp 5 row printed in the notebook, which came from a different training
+session than the saved model.
 
 ## Project structure
 
@@ -212,7 +259,10 @@ data/
   test/                held-out evaluation set (not committed)
 models/                exp5_base.keras (committed) + runtime versions
 notebook/              training + evaluation notebook
-scripts/seed_data.py   stratified APTOS replay-buffer seeder
+scripts/
+  prepare_data.py      build data/train (replay buffer) + data/test (eval set)
+  evaluate_model.py    measure a model on the held-out test split
+  pick_demo_images.py  held-out images the model grades correctly
 tests/                 src, prediction, upload, base-model integrity
 Dockerfile  docker-compose.yml  render.yaml
 ```
@@ -221,8 +271,10 @@ Dockerfile  docker-compose.yml  render.yaml
 
 - **Ephemeral hosted storage** — uploads/retrains reset on redeploy (free tier).
 - **Live retraining** needs ≥ 2 GB RAM; demonstrated locally via Docker.
-- **Grade 3/4 recall (0.372)** — the model under-detects severe/proliferative DR
-  due to class imbalance in the source data; a clinical deployment would require
-  higher sensitivity on sight-threatening grades.
-- **APTOS images are not redistributed** (competition licensing); seed the
-  training pool from your own copy via `scripts/seed_data.py`.
+- **Grade 3+4 recall (0.390)** — the model under-detects sight-threatening DR,
+  especially Proliferative (recall 0.159), and confuses the middle grades (it
+  over-predicts Severe). A clinical deployment would require much higher
+  sensitivity on Grades 3 and 4.
+- **APTOS images are not redistributed** (competition licensing); build the
+  training pool and evaluation set from your own copy via
+  `scripts/prepare_data.py`.
