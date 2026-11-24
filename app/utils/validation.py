@@ -16,6 +16,15 @@ def looks_like_image(data: bytes) -> bool:
     return any(data.startswith(sig) for sig in _IMAGE_MAGIC)
 
 
+def image_problem(data: bytes, max_bytes: int = MAX_IMAGE_BYTES):
+    """Why ``data`` is not an acceptable image, or None if it is fine."""
+    if len(data) > max_bytes:
+        return f"larger than {max_bytes // (1024 * 1024)} MB"
+    if not looks_like_image(data):
+        return "not a JPEG, PNG or BMP image"
+    return None
+
+
 def read_image_upload(file: UploadFile, max_bytes: int = MAX_IMAGE_BYTES) -> bytes:
     """Read an uploaded image into memory, or raise HTTP 400 if it isn't one.
 

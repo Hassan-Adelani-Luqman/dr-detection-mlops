@@ -24,8 +24,11 @@ specialist ophthalmologists are scarce.
 
 - **Predict** — upload a fundus image and get its DR grade (0–4) with per-class
   confidence and a clinical action note.
-- **Upload** — contribute labelled images to the training pool, saved to a
-  database for future retraining.
+- **Upload (bulk)** — add many labelled images at once (one grade per batch), or
+  a ZIP with a folder per grade (`0/` … `4/`). Each image is checked and saved to
+  the database, into either the **training pool** (used for retraining) or the
+  held-out **evaluation set** (used to measure models, never trained on). Bad files
+  are listed with the reason; the rest are kept.
 - **Retrain** — fine-tune a new model version from the pool using the active
   model as a pre-trained base. The convolutional backbone is frozen so only the
   classifier head trains — fast enough for CPU. **The original weights are never

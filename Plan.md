@@ -433,44 +433,60 @@ status card.
 
 ## Phase 6 — Bulk upload (multiple images, or a ZIP sorted by grade)  (P0, ~4 h) — G9
 
-**Status:** ☐ not started
+**Status:** ☑ done 2026-11-24
 
-- [ ] 6.1 Add a helper `_save_image(data, filename, grade, source, db)` in
-  `app/routes/upload.py`. The existing single-file `/api/upload` stays and calls it.
-- [ ] 6.2 `POST /api/upload/bulk`:
-  - Inputs: `files: list[UploadFile]`, `grade_label: int`, and
-    `destination: "train" | "eval"` (default `"train"`, which maps to `source = "user"` or
-    `"eval"`).
-  - Limits: at most 100 files per request, 10 MB each, checked by magic bytes.
-  - Returns `{saved: [...], rejected: [{filename, reason}], counts_by_grade}`.
-- [ ] 6.3 `POST /api/upload/zip`:
-  - Takes one `.zip` with folders `0/` to `4/` (also accept `grade_0/`); the folder name
-    gives the label.
-  - Safety limits: at most 500 entries and 200 MB uncompressed; skip folders, hidden files
-    and `__MACOSX`.
-  - Use only the base name of each entry, so `../x` cannot escape the uploads folder, and
-    check magic bytes per file.
-  - Returns the same response shape as 6.2.
-- [ ] 6.4 Make `destination=eval` mean "Evaluation set" (`source="eval"`, never trained on).
-  This lets a cloud deployment without APTOS images still evaluate models in production
-  (Phase 7).
-- [ ] 6.5 Rework `upload.html`:
-  - Two tabs: **Images** (`<input multiple>`, drag and drop several files, a thumbnail
-    grid, one grade selector) and **ZIP by grade folders**.
-  - A destination choice: Training pool or Evaluation set.
-  - A progress bar, a per-file result list showing saved or rejected and why, and a counts
-    table with separate train, user and eval columns.
-- [ ] 6.6 Tests, using synthetic PNGs generated in `conftest.py` so they run on a fresh
-  clone:
-  - Bulk upload of 5 images saves 5 rows.
-  - A mix of valid and invalid files saves the valid ones and reports the rejects.
-  - A ZIP with grade folders gets the labels right.
-  - A ZIP entry named `../evil.png` is stored safely inside the uploads folder.
-  - An oversized file is rejected.
-  - `destination=eval` sets `source="eval"`.
+- [x] 6.1 Shared helpers in `app/routes/upload.py`:
+  - `_save_image(db, data, filename, grade, source)` stores the file as
+    `<random8>_<safe name>` and adds the row.
+  - `_summary()` returns `saved`, `rejected`, `ignored`, the counts for all three pools,
+    and the older `counts_by_grade` and `total_user_uploads` fields.
+  - `_safe_name` now also strips Windows paths.
+  - `app/utils/validation.py` gains a non-raising `image_problem(data)` that returns
+    the reason a file is rejected.
+- [x] 6.2 `POST /api/upload/bulk` takes `files[]`, `grade_label` and
+  `destination=train|eval`, accepts up to 100 files at 10 MB each, and reports invalid
+  files per file instead of failing the whole request.
+- [x] 6.3 `POST /api/upload/zip`:
+  - The grade comes from the first `0`–`4` or `grade_N` folder in each path, at any depth.
+  - Limits: 500 entries and 200 MB unpacked, both checked before reading.
+  - `__MACOSX/` and dot-files are counted as `ignored`; entries outside a grade folder,
+    non-images, oversized, encrypted or corrupt files are rejected with a reason.
+  - Nothing is extracted by its ZIP path, so `0/../../evil.png` is saved as
+    `<random>_evil.png` inside uploads.
+- [x] 6.4 `destination=eval` saves rows with `source="eval"`, which never enter training.
+  The single-image `/api/upload` also accepts `destination`.
+- [x] 6.5 `upload.html` rewritten:
+  - **Images** and **ZIP sorted by grade** tabs, plus a Training pool / Evaluation set
+    choice.
+  - Drop zones that take several files, with up to 24 thumbnails and a "+N" counter.
+  - Uploads go through XHR to show a **progress bar**, followed by "Checking and saving
+    images…".
+  - The result lists how many images were saved per grade and every rejected file with
+    its reason.
+  - A live **pool table**: replay buffer, your training uploads and the evaluation set,
+    per grade.
+  - nginx's `client_max_body_size` is raised to 250 MB for bulk and ZIP uploads.
+- [x] 6.6 `tests/test_bulk_upload.py` (11 tests, synthetic PNGs and in-memory ZIPs):
+  - Bulk upload of 5 files; a mixed batch keeps the good file and rejects the others with
+    their reasons; `destination=eval`.
+  - Bad grade or destination returns 400; more than 100 files returns 400.
+  - ZIP grades come from folders at any depth (`grade_3/`, `batch/4/`), with rejects and
+    ignored files counted.
+  - A path-traversal entry stays inside uploads; a non-ZIP returns 400.
+  - Single upload with a destination, and the page markup.
+- [x] README feature list updated.
 
-**Done when:** you can upload 10 images in one go from the UI, and a ZIP of 15 images in
-5 grade folders saves 15 correctly labelled rows.
+**Done when** (checked):
+- `pytest` → 55 passed, and the page JavaScript passes `node --check`.
+- **Browser end-to-end** (headless Chrome over the DevTools protocol, against a separate
+  server with a throwaway database and uploads folder): selected 3 canvas-made PNGs plus
+  one fake file, chose grade 3 and the evaluation set, and submitted.
+  - The page showed "Saved 3 images to the evaluation set (3 × Severe DR)" and
+    "notes.png — not a JPEG, PNG or BMP image".
+  - The pool table updated live (grade-3 evaluation set 0 → 3), the form reset, and the
+    ZIP tab toggled.
+  - The real `data/app.db` was untouched.
+
 **Commit:** `feat: bulk image and ZIP upload into the training or evaluation pool`
 
 ---

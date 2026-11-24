@@ -3,123 +3,288 @@
 
 {% block content %}
 <section class="page-head">
-  <h1>Contribute Labelled Images</h1>
-  <p class="muted">Add labelled fundus images to the training pool. These are
-    saved to the database and used when you retrain the model.</p>
+  <h1>Upload Labelled Images</h1>
+  <p class="muted">Add many fundus images at once, or a ZIP sorted into grade
+    folders. Choose whether they join the <strong>training pool</strong> (used when
+    you retrain) or the <strong>evaluation set</strong> (held out to measure models,
+    never trained on). Every image is checked, saved, and recorded in the
+    database.</p>
 </section>
 
 <div class="grid-2">
   <div class="card">
-    <form id="upload-form">
-      <label id="dropzone" class="dropzone" for="file-input">
-        <input type="file" id="file-input" name="file" accept="image/*" hidden>
-        <div id="dz-prompt">
-          <span class="dz-icon">&#8593;</span>
-          <p><strong>Drag &amp; drop</strong> a fundus image here</p>
-          <p class="muted">or click to browse (JPEG / PNG)</p>
-        </div>
-        <img id="preview" alt="preview" hidden>
-      </label>
+    <div class="tabs" role="tablist" aria-label="Upload type">
+      <button type="button" class="tab active" role="tab" aria-selected="true"
+              aria-controls="images-form" data-tab="images">Images</button>
+      <button type="button" class="tab" role="tab" aria-selected="false"
+              aria-controls="zip-form" data-tab="zip">ZIP sorted by grade</button>
+    </div>
 
-      <label class="field-label" for="grade-select">True grade (label)</label>
-      <select id="grade-select" name="grade_label" class="select" required>
+    <fieldset class="destination">
+      <legend class="field-label">Add them to</legend>
+      <label class="radio"><input type="radio" name="destination" value="train" checked>
+        <span><strong>Training pool</strong> &mdash; used when you retrain</span></label>
+      <label class="radio"><input type="radio" name="destination" value="eval">
+        <span><strong>Evaluation set</strong> &mdash; held out, used to measure models</span></label>
+    </fieldset>
+
+    <form id="images-form" role="tabpanel">
+      <label id="img-drop" class="dropzone" for="img-input">
+        <input type="file" id="img-input" accept="image/*" multiple hidden>
+        <div id="img-prompt">
+          <span class="dz-icon">&#8593;</span>
+          <p><strong>Drag &amp; drop</strong> fundus images of one grade here</p>
+          <p class="muted">or click to choose &mdash; up to {{ max_files }} images,
+            10 MB each (JPEG / PNG / BMP)</p>
+        </div>
+        <div id="thumbs" class="thumbs" hidden></div>
+      </label>
+      <p id="img-count" class="muted small" hidden></p>
+
+      <label class="field-label" for="grade-select">Grade of all these images</label>
+      <select id="grade-select" class="select" required>
         <option value="" disabled selected>Select the correct grade&hellip;</option>
         {% for value, label in labels.items() %}
         <option value="{{ value }}">{{ value }} &mdash; {{ label }}</option>
         {% endfor %}
       </select>
 
-      <button type="submit" id="upload-btn" class="btn btn-primary" disabled>
-        Save to Training Pool
-      </button>
-      <div id="upload-msg" class="upload-msg" hidden></div>
-      <div id="error" class="error-box" hidden></div>
+      <button type="submit" id="img-btn" class="btn btn-primary" disabled>Upload images</button>
     </form>
+
+    <form id="zip-form" role="tabpanel" hidden>
+      <label id="zip-drop" class="dropzone" for="zip-input">
+        <input type="file" id="zip-input" accept=".zip,application/zip" hidden>
+        <div id="zip-prompt">
+          <span class="dz-icon">&#128230;</span>
+          <p><strong>Drag &amp; drop</strong> a .zip here</p>
+          <p class="muted">or click to choose</p>
+        </div>
+      </label>
+      <p class="muted small">Put each image in a folder named after its grade,
+        <code>0/</code> to <code>4/</code> (or <code>grade_0/</code> &hellip;). Up to 500
+        images and {{ zip_max_mb }} MB unpacked.</p>
+<pre class="tree">my_images.zip
+├── 0/   a.png  b.png  …
+├── 2/   c.jpg  …
+└── 4/   d.png  …</pre>
+      <button type="submit" id="zip-btn" class="btn btn-primary" disabled>Upload ZIP</button>
+    </form>
+
+    <div class="progress-track" id="up-progress" hidden><div class="progress-bar" id="up-bar"></div></div>
+    <div id="up-status" class="status-line" hidden></div>
+    <div id="up-result" hidden></div>
+    <div id="error" class="error-box" hidden></div>
   </div>
 
   <div class="card">
-    <h3>Training Pool (your uploads)</h3>
-    <p class="muted">Live count of user-contributed images by grade.</p>
-    <table class="count-table">
-      <thead><tr><th>Grade</th><th>Count</th></tr></thead>
-      <tbody id="count-body">
-        {% for value, label in labels.items() %}
-        <tr><td>{{ value }} &mdash; {{ label }}</td>
-            <td id="count-{{ value }}">{{ counts[value] }}</td></tr>
-        {% endfor %}
-      </tbody>
-      <tfoot><tr><td><strong>Total</strong></td>
-        <td id="count-total"><strong>{{ counts.values() | sum }}</strong></td></tr></tfoot>
-    </table>
+    <h3>Image pools</h3>
+    <p class="muted">Images per grade in each pool. Retraining uses the replay
+      buffer and your training uploads; the evaluation set is never trained on.</p>
+    <div class="table-scroll">
+      <table class="count-table">
+        <thead><tr><th>Grade</th><th>Replay buffer</th><th>Your training uploads</th>
+          <th>Evaluation set</th></tr></thead>
+        <tbody>
+          {% for value, label in labels.items() %}
+          <tr><td>{{ value }} &mdash; {{ label }}</td>
+            <td id="c-seed-{{ value }}">{{ pools.seed[value] }}</td>
+            <td id="c-user-{{ value }}">{{ pools.user[value] }}</td>
+            <td id="c-eval-{{ value }}">{{ pools.eval[value] }}</td></tr>
+          {% endfor %}
+        </tbody>
+        <tfoot><tr><td><strong>Total</strong></td>
+          <td id="t-seed"><strong>{{ pools.seed.values() | sum }}</strong></td>
+          <td id="t-user"><strong>{{ pools.user.values() | sum }}</strong></td>
+          <td id="t-eval"><strong>{{ pools.eval.values() | sum }}</strong></td></tr></tfoot>
+      </table>
+    </div>
   </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-const form = document.getElementById('upload-form');
-const fileInput = document.getElementById('file-input');
-const dropzone = document.getElementById('dropzone');
-const preview = document.getElementById('preview');
-const dzPrompt = document.getElementById('dz-prompt');
-const gradeSelect = document.getElementById('grade-select');
-const uploadBtn = document.getElementById('upload-btn');
-const msg = document.getElementById('upload-msg');
-const errorBox = document.getElementById('error');
+const LABELS = {{ labels.values() | list | tojson }};
+const MAX_FILES = {{ max_files }};
+const $ = id => document.getElementById(id);
+let imageFiles = [];
+let zipFile = null;
 
-function refreshBtn() {
-  uploadBtn.disabled = !(fileInput.files[0] && gradeSelect.value !== '');
-}
-function showFile(file) {
-  if (!file) return;
-  preview.src = URL.createObjectURL(file);
-  preview.hidden = false; dzPrompt.hidden = true; refreshBtn();
-}
-fileInput.addEventListener('change', () => showFile(fileInput.files[0]));
-gradeSelect.addEventListener('change', refreshBtn);
+// ---- Tabs --------------------------------------------------------------------
+document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => {
+  document.querySelectorAll('.tab').forEach(t => {
+    const on = t === tab;
+    t.classList.toggle('active', on);
+    t.setAttribute('aria-selected', on);
+  });
+  $('images-form').hidden = tab.dataset.tab !== 'images';
+  $('zip-form').hidden = tab.dataset.tab !== 'zip';
+  clearMessages();
+}));
 
-['dragover', 'dragenter'].forEach(ev =>
-  dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.add('drag'); }));
-['dragleave', 'drop'].forEach(ev =>
-  dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.remove('drag'); }));
-dropzone.addEventListener('drop', e => {
-  const f = e.dataTransfer.files[0];
-  if (f) { fileInput.files = e.dataTransfer.files; showFile(f); }
+function destination() {
+  return document.querySelector('input[name="destination"]:checked').value;
+}
+function clearMessages() {
+  $('error').hidden = true; $('up-result').hidden = true; $('up-status').hidden = true;
+  $('up-progress').hidden = true;
+}
+function showError(msg) { $('error').textContent = msg; $('error').hidden = false; }
+function mb(bytes) { return (bytes / 1048576).toFixed(1) + ' MB'; }
+
+// ---- Drop zones ------------------------------------------------------------------
+function wireDrop(zone, onFiles) {
+  ['dragover', 'dragenter'].forEach(ev => zone.addEventListener(ev, e => {
+    e.preventDefault(); zone.classList.add('drag'); }));
+  ['dragleave', 'drop'].forEach(ev => zone.addEventListener(ev, e => {
+    e.preventDefault(); zone.classList.remove('drag'); }));
+  zone.addEventListener('drop', e => onFiles(e.dataTransfer.files));
+}
+
+function setImages(list) {
+  clearMessages();
+  imageFiles = Array.from(list).filter(f => f.type.startsWith('image/') || /\.(png|jpe?g|bmp)$/i.test(f.name));
+  const thumbs = $('thumbs');
+  thumbs.innerHTML = '';
+  imageFiles.slice(0, 24).forEach(f => {
+    const img = document.createElement('img');
+    img.src = URL.createObjectURL(f); img.alt = f.name; img.title = f.name;
+    thumbs.appendChild(img);
+  });
+  if (imageFiles.length > 24) {
+    const more = document.createElement('span');
+    more.className = 'thumb-more'; more.textContent = `+${imageFiles.length - 24}`;
+    thumbs.appendChild(more);
+  }
+  thumbs.hidden = imageFiles.length === 0;
+  $('img-prompt').hidden = imageFiles.length > 0;
+  const total = imageFiles.reduce((a, f) => a + f.size, 0);
+  $('img-count').textContent = imageFiles.length
+    ? `${imageFiles.length} image${imageFiles.length > 1 ? 's' : ''} selected (${mb(total)})` : '';
+  $('img-count').hidden = imageFiles.length === 0;
+  if (imageFiles.length > MAX_FILES)
+    showError(`${imageFiles.length} images selected; upload at most ${MAX_FILES} at a time.`);
+  refreshButtons();
+}
+
+function setZip(list) {
+  clearMessages();
+  zipFile = list && list[0] && /\.zip$/i.test(list[0].name) ? list[0] : null;
+  $('zip-prompt').innerHTML = zipFile
+    ? `<span class="dz-icon">&#128230;</span><p><strong>${zipFile.name}</strong></p><p class="muted">${mb(zipFile.size)} &mdash; click to change</p>`
+    : '<span class="dz-icon">&#128230;</span><p><strong>Drag &amp; drop</strong> a .zip here</p><p class="muted">or click to choose</p>';
+  if (list && list[0] && !zipFile) showError('Please choose a .zip file.');
+  refreshButtons();
+}
+
+function refreshButtons() {
+  $('img-btn').disabled = !(imageFiles.length && imageFiles.length <= MAX_FILES && $('grade-select').value !== '');
+  $('img-btn').textContent = imageFiles.length > 1 ? `Upload ${imageFiles.length} images` : 'Upload image';
+  $('zip-btn').disabled = !zipFile;
+}
+
+$('img-input').addEventListener('change', e => setImages(e.target.files));
+$('zip-input').addEventListener('change', e => setZip(e.target.files));
+$('grade-select').addEventListener('change', refreshButtons);
+wireDrop($('img-drop'), setImages);
+wireDrop($('zip-drop'), setZip);
+
+// ---- Upload with progress (XMLHttpRequest reports upload progress; fetch does not)
+function send(url, data) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    xhr.upload.onprogress = e => {
+      if (!e.lengthComputable) return;
+      const pct = Math.round(100 * e.loaded / e.total);
+      $('up-bar').style.width = pct + '%';
+      $('up-status').textContent = pct < 100 ? `Uploading… ${pct}%` : 'Checking and saving images…';
+    };
+    xhr.onload = () => {
+      let body = {};
+      try { body = JSON.parse(xhr.responseText); } catch (e) { /* non-JSON error page */ }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(body);
+      else reject(new Error(body.detail || `Upload failed (HTTP ${xhr.status}).`));
+    };
+    xhr.onerror = () => reject(new Error('Network error during upload.'));
+    xhr.send(data);
+  });
+}
+
+async function run(url, data, button) {
+  clearMessages();
+  button.disabled = true;
+  $('up-progress').hidden = false; $('up-bar').style.width = '0%';
+  $('up-status').hidden = false; $('up-status').textContent = 'Uploading…';
+  try {
+    const r = await send(url, data);
+    renderResult(r);
+    updatePools(r.pools);
+    return true;
+  } catch (err) {
+    showError(err.message);
+    return false;
+  } finally {
+    $('up-progress').hidden = true; $('up-status').hidden = true;
+    refreshButtons();
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+function renderResult(r) {
+  const where = r.destination === 'eval' ? 'the evaluation set' : 'the training pool';
+  const byGrade = {};
+  r.saved.forEach(s => { byGrade[s.grade_name] = (byGrade[s.grade_name] || 0) + 1; });
+  const gradeText = Object.entries(byGrade).map(([g, n]) => `${n} × ${g}`).join(', ');
+  let html = `<div class="upload-msg">Saved <strong>${r.saved.length}</strong> image${r.saved.length === 1 ? '' : 's'} to ${where}` +
+             (gradeText ? ` (${gradeText})` : '') + '.</div>';
+  if (r.rejected.length) {
+    html += `<div class="error-box reject-box"><strong>${r.rejected.length} rejected:</strong><ul>` +
+      r.rejected.slice(0, 50).map(x => `<li><code>${escapeHtml(x.filename)}</code> — ${escapeHtml(x.reason)}</li>`).join('') +
+      (r.rejected.length > 50 ? `<li>…and ${r.rejected.length - 50} more</li>` : '') + '</ul></div>';
+  }
+  if (r.ignored) html += `<p class="muted small">${r.ignored} non-image system file${r.ignored === 1 ? '' : 's'} ignored.</p>`;
+  $('up-result').innerHTML = html;
+  $('up-result').hidden = false;
+}
+
+function updatePools(pools) {
+  if (!pools) return;
+  for (const source of ['seed', 'user', 'eval']) {
+    let total = 0;
+    LABELS.forEach((label, g) => {
+      const n = pools[source][label] || 0;
+      total += n;
+      $(`c-${source}-${g}`).textContent = n;
+    });
+    $(`t-${source}`).innerHTML = `<strong>${total}</strong>`;
+  }
+}
+
+$('images-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const data = new FormData();
+  imageFiles.forEach(f => data.append('files', f, f.name));
+  data.append('grade_label', $('grade-select').value);
+  data.append('destination', destination());
+  if (await run('/api/upload/bulk', data, $('img-btn'))) {
+    setImages([]); $('img-input').value = '';
+    $('up-result').hidden = false;          // setImages cleared it; keep the summary
+  }
 });
 
-form.addEventListener('submit', async (e) => {
+$('zip-form').addEventListener('submit', async e => {
   e.preventDefault();
-  errorBox.hidden = true; msg.hidden = true;
-  uploadBtn.disabled = true;
   const data = new FormData();
-  data.append('file', fileInput.files[0]);
-  data.append('grade_label', gradeSelect.value);
-  try {
-    const resp = await fetch('/api/upload', { method: 'POST', body: data });
-    const json = await resp.json();
-    if (!resp.ok) throw new Error(json.detail || 'Upload failed.');
-    msg.textContent = `Saved. ${json.total_user_uploads} images now in the training pool.`;
-    msg.hidden = false;
-    // update counts
-    let total = 0;
-    for (const [name, n] of Object.entries(json.counts_by_grade)) total += n;
-    document.getElementById('count-total').innerHTML = '<strong>' + total + '</strong>';
-    // map grade name -> row: rebuild by index
-    const gradeIdx = json.grade_label;
-    // refresh all cells from the returned map
-    const nameToIdx = {};
-    {% for value, label in labels.items() %}nameToIdx["{{ label }}"] = {{ value }};{% endfor %}
-    for (const [name, n] of Object.entries(json.counts_by_grade)) {
-      const idx = nameToIdx[name];
-      if (idx !== undefined) document.getElementById('count-' + idx).textContent = n;
-    }
-    // reset form
-    fileInput.value = ''; gradeSelect.value = '';
-    preview.hidden = true; dzPrompt.hidden = false;
-  } catch (err) {
-    errorBox.textContent = err.message; errorBox.hidden = false;
-  } finally {
-    refreshBtn();
+  data.append('file', zipFile, zipFile.name);
+  data.append('destination', destination());
+  if (await run('/api/upload/zip', data, $('zip-btn'))) {
+    setZip(null); $('zip-input').value = '';
+    $('up-result').hidden = false;
   }
 });
 </script>
