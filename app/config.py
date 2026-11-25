@@ -82,6 +82,11 @@ PROMOTION_RECALL_TOLERANCE = float(os.getenv("PROMOTION_RECALL_TOLERANCE", "0.05
 # Retraining trigger: recommend a retrain once this many new labelled images
 # have been uploaded since the last one; with AUTO_RETRAIN=true, start it.
 RETRAIN_TRIGGER_THRESHOLD = int(os.getenv("RETRAIN_TRIGGER_THRESHOLD", "20"))
+
+# Retraining can be switched off on hosts without the memory for it
+# (TensorFlow training needs well over 512 MB). Prediction, upload and the
+# rest of the app keep working; the Retrain page explains why it is off.
+RETRAIN_ENABLED = os.getenv("RETRAIN_ENABLED", "true").lower() in ("1", "true", "yes")
 AUTO_RETRAIN = os.getenv("AUTO_RETRAIN", "false").lower() in ("1", "true", "yes")
 
 # --------------------------------------------------------------------------- #

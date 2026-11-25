@@ -245,11 +245,23 @@ empty.
 The app is deployed on Render from this repository's `Dockerfile`, serving a
 public HTTPS URL. Render injects `PORT`; the container binds it automatically.
 
-**Prediction and Insights** run comfortably on the live URL. **Retraining** is
-memory-intensive (TensorFlow + `model.fit`) and exceeds Render's free-tier
-512 MB limit, so it is demonstrated on the **containerised app running locally**
-(`docker compose up`), which also carries the seed replay buffer. This split is
-shown in the video demo. For live retraining, deploy to a host with ≥ 2 GB RAM.
+**Prediction, upload and Insights** run comfortably on the live URL.
+**Retraining** is switched on there too (`RETRAIN_ENABLED: "true"` in
+`render.yaml`), but it needs far more memory than prediction. Measured in Docker
+with the same image:
+
+| Memory limit | Idle | Retrain (15 uploaded images) |
+|---|---|---|
+| 512 MB, no swap (Render free tier) | ~380 MB | **killed for running out of memory** as training starts (exit 137); the service restarts and, with ephemeral storage, loses its uploads |
+| 2 GB | ~380 MB | completes; peak about 780 MB |
+
+So live retraining needs an instance with at least 1 GB (for example Render's
+2 GB plan). On the free tier, set `RETRAIN_ENABLED` to `"false"`: the Retrain
+page then explains that retraining is turned off on that host, and the API
+returns 503, instead of the service being killed mid-retrain. The full pipeline
+(upload → retrain → evaluate → promote) runs in the **containerised app locally**
+(`docker compose up`), which also carries the replay buffer and the held-out
+evaluation set.
 
 `render.yaml` is included for reproducible Render deployment.
 
@@ -416,7 +428,9 @@ Dockerfile  docker-compose.yml  render.yaml
 ## Known limitations
 
 - **Ephemeral hosted storage** — uploads/retrains reset on redeploy (free tier).
-- **Live retraining** needs ≥ 2 GB RAM; demonstrated locally via Docker.
+- **Live retraining** needs about 1 GB of memory (peak ~780 MB); on a 512 MB
+  instance it is killed for running out of memory. Switch it off there with
+  `RETRAIN_ENABLED=false`; the full pipeline runs locally via Docker.
 - **Grade 3+4 recall (0.390)** — the model under-detects sight-threatening DR,
   especially Proliferative (recall 0.159), and confuses the middle grades (it
   over-predicts Severe). A clinical deployment would require much higher

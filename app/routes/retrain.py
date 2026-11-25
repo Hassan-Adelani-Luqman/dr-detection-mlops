@@ -18,7 +18,8 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.config import (APP_DIR, AUTO_RETRAIN, PROMOTION_QWK_TOLERANCE,
-                        PROMOTION_RECALL_TOLERANCE, RETRAIN_TRIGGER_THRESHOLD)
+                        PROMOTION_RECALL_TOLERANCE, RETRAIN_ENABLED,
+                        RETRAIN_TRIGGER_THRESHOLD)
 from app.database.db import SessionLocal
 from app.database.models import UploadedImage
 from app.services import retrain_service
@@ -27,6 +28,11 @@ from app.services.registry import get_registry
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
+
+RETRAIN_DISABLED_MESSAGE = (
+    "Retraining is turned off on this deployment (RETRAIN_ENABLED=false), usually "
+    "because the host does not have the memory TensorFlow training needs. Prediction, "
+    "upload and insights still work; retrain on a larger host or locally with Docker.")
 
 _lock = threading.Lock()
 _status = {
@@ -59,8 +65,8 @@ def _run():
 
 
 def start_retraining(trigger: str = "manual") -> bool:
-    """Start a retrain in the background; False if one is already running."""
-    if not _lock.acquire(blocking=False):
+    """Start a retrain in the background; False if disabled or one is already running."""
+    if not RETRAIN_ENABLED or not _lock.acquire(blocking=False):
         return False
     _status.update({"status": "running", "stage": "starting", "stage_text": "Starting…",
                     "trigger": trigger, "current_epoch": 0, "total_epochs": 0,
@@ -83,7 +89,9 @@ def readiness(db: Session) -> dict:
         "last_retrained": last,
         "threshold": RETRAIN_TRIGGER_THRESHOLD,
         "recommended": n_new >= RETRAIN_TRIGGER_THRESHOLD,
-        "auto_retrain": AUTO_RETRAIN,
+        "auto_retrain": AUTO_RETRAIN and RETRAIN_ENABLED,
+        "retrain_enabled": RETRAIN_ENABLED,
+        "disabled_message": None if RETRAIN_ENABLED else RETRAIN_DISABLED_MESSAGE,
         "running": _status["status"] == "running",
         "promotion_rule": {"qwk_tolerance": PROMOTION_QWK_TOLERANCE,
                            "recall_tolerance": PROMOTION_RECALL_TOLERANCE},
@@ -104,6 +112,8 @@ async def retrain_page(request: Request):
 
 @router.post("/api/retrain")
 async def api_retrain():
+    if not RETRAIN_ENABLED:
+        raise HTTPException(status_code=503, detail=RETRAIN_DISABLED_MESSAGE)
     if not start_retraining():
         raise HTTPException(status_code=409, detail="A retrain is already running.")
     return {"status": "started"}

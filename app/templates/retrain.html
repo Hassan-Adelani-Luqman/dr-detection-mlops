@@ -86,6 +86,12 @@ async function loadReadiness() {
     banner.hidden = false;
     if (r.eval_set === 0)
       banner.textContent += ' No held-out evaluation set yet: models will be compared on the validation split instead.';
+    if (!r.retrain_enabled) {
+      banner.className = 'banner banner-hold';
+      banner.textContent = r.disabled_message;
+      $('start-btn').disabled = true;
+      $('start-btn').title = 'Retraining is turned off on this deployment';
+    }
     $('ready-rule').textContent =
       `Promotion rule: the new model replaces the current one unless its QWK drops by more than ` +
       `${r.promotion_rule.qwk_tolerance.toFixed(2)} or its Grade 3+4 recall by more than ` +

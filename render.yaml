@@ -1,12 +1,15 @@
-# Render deployment config (ALTERNATIVE target).
+# Render deployment config (Docker runtime), built from this repo's Dockerfile.
 #
-# Primary deployment is Hugging Face Spaces (Docker SDK) — see README.
-# Render's free tier provides only 512 MB RAM, which is likely to be OOM-killed
-# during retraining given the ~2.3 GB TensorFlow image's memory footprint.
-# Prediction-only use may fit, but retraining is not reliable here. Documented
-# as a fallback; upgrade to a paid instance (>= 2 GB RAM) for stable retraining.
+# Render injects PORT and the Dockerfile CMD binds to it; /health is the health
+# check. The base model is baked into the image, so prediction works from a cold
+# start. Storage is ephemeral: uploads, the database and retrained versions reset
+# on every redeploy, and the APTOS replay buffer / evaluation set are not shipped
+# (licence), so a retrain on Render uses the images uploaded through the app.
 #
-# Render injects the PORT env var and the Dockerfile CMD binds to it.
+# RETRAIN_ENABLED switches the retraining feature on or off. TensorFlow training
+# needs much more memory than prediction; on a small instance set it to "false"
+# and the Retrain page explains that retraining is turned off, instead of the
+# service being killed for running out of memory mid-retrain.
 services:
   - type: web
     name: dr-detection-mlops
@@ -16,3 +19,5 @@ services:
     envVars:
       - key: PORT
         value: "8000"
+      - key: RETRAIN_ENABLED
+        value: "true"

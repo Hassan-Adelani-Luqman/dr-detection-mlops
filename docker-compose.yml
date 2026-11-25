@@ -21,6 +21,7 @@ services:
       - TF_NUM_INTEROP_THREADS=1
       - OMP_NUM_THREADS=${TF_THREADS:-1}
       - PREDICT_CONCURRENCY=${PREDICT_CONCURRENCY:-2}
+      - RETRAIN_ENABLED=${RETRAIN_ENABLED:-true}
     cpus: ${WEB_CPUS:-1.0}
     mem_limit: ${WEB_MEM:-2g}
     volumes:

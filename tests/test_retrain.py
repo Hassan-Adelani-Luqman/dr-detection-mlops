@@ -158,3 +158,12 @@ def test_retrain_through_the_api(client, synthetic_pool, monkeypatch):
     assert client.get("/api/retrain/readiness").json()["running"] is False
     history = client.get("/api/insights").json()["history"]
     assert history[-1]["heldout"] is not None and "promoted" in history[-1]
+
+
+def test_retraining_can_be_switched_off(client, monkeypatch):
+    monkeypatch.setattr(retrain_routes, "RETRAIN_ENABLED", False)
+    resp = client.post("/api/retrain")
+    assert resp.status_code == 503 and "turned off" in resp.json()["detail"]
+    ready = client.get("/api/retrain/readiness").json()
+    assert ready["retrain_enabled"] is False and "RETRAIN_ENABLED" in ready["disabled_message"]
+    assert retrain_routes.start_retraining() is False

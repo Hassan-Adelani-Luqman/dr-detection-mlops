@@ -570,37 +570,40 @@ status card.
 
 ---
 
-## Phase 8 — Run the full pipeline in the cloud  (guard P0, full deploy P1, ~3 h) — G12
+## Phase 8 — Run the full pipeline in the cloud  (guard P0, full deploy P1) — G12
 
-**Status:** ☐ not started
+**Status:** ☑ done 2026-11-26 (scope changed by the user: no Hugging Face; retraining
+stays **on** in `render.yaml`)
 
-- [ ] 8.1 **Guard (do this regardless).** Add a `RETRAIN_ENABLED` setting (default `true`).
-  - In `render.yaml`, set it to `false`. The Retrain page then shows "Retraining is disabled
-    on this free 512 MB instance — the full pipeline runs at <cloud URL> / locally via
-    Docker", and the API returns 503 with the same message.
-  - This stops a grader's click from crashing the instance by running out of memory.
-  - Also fix the stale comment in `render.yaml` ("Primary deployment is Hugging Face Spaces").
-- [ ] 8.2 **Hugging Face Spaces, Docker SDK.** The free CPU tier is about 2 vCPU and
-  16 GB RAM; check the current limits before relying on them.
-  - Create the Space and add a `scripts/deploy_hf.sh` that pushes to the Space remote with
-    a README carrying the front matter `sdk: docker` and `app_port: 8000`. Keep that README
-    in `deploy/hf/README.md` so the GitHub README stays clean.
-  - `exp5_base.keras` is 15 MB, so it needs Git LFS or Xet on the Space (HF requires it
-    for files over 10 MB).
-  - HF runs containers as uid 1000: use `useradd -u 1000 appuser` in the Dockerfile.
-  - The cloud training and evaluation pools start empty, because no APTOS images are
-    shipped. The cloud demo is: upload a ZIP for training and a ZIP for evaluation
-    (Phase 6), then retrain. `MIN_SAMPLES=5` still applies.
-  - Storage there is ephemeral; document this.
-- [ ] 8.3 If HF doesn't work out, keep the guard plus local Docker retraining, which is
-  already documented. Optionally, pay for a Render instance with at least 2 GB.
-- [ ] 8.4 Update the README links: the Render URL (prediction and insights), the HF URL
-  (full pipeline), and which features each one supports.
+- [x] 8.1 `RETRAIN_ENABLED` switch (config, default `true`):
+  - When off, `POST /api/retrain` returns 503 with an explanatory message,
+    `start_retraining()` and the automatic trigger do nothing, `/api/retrain/readiness`
+    reports `retrain_enabled: false` plus the message, and the Retrain page shows it in
+    an amber banner with the button disabled.
+  - `render.yaml`: the stale "Primary deployment is Hugging Face Spaces" header is
+    replaced with an accurate one, and `RETRAIN_ENABLED: "true"` is set **as the user
+    asked**. `docker-compose.yml` passes the switch through.
+  - Test: `test_retraining_can_be_switched_off`.
+- [ ] 8.2 Hugging Face Spaces: **dropped**. The user reports the free tier cannot handle
+  this app.
+- [x] 8.3 Measured what retraining does on a Render-sized host, using the current image
+  in Docker with no volumes and empty pools, as on Render. 15 demo images were uploaded,
+  then a retrain was triggered:
 
-**Done when:** on the cloud URL, uploading a ZIP, retraining, seeing the evaluation and
-then predicting with the new version all work; Render shows the disabled message instead
-of crashing; prediction on both URLs works.
-**Commit:** `deploy: guard retraining on low-memory hosts; add Hugging Face Spaces deployment`
+  | Limit | Idle | Retrain |
+  |---|---|---|
+  | 512 MB, no swap (Render free tier) | ~380 MB | **OOM-killed as training starts** (`OOMKilled=true`, exit 137) |
+  | 2 GB | ~380 MB | completes and promotes; peak ~780 MB (1 s sampling) |
+
+  - So with `RETRAIN_ENABLED: "true"` on the free tier, a click on Retrain will restart
+    the service, and with ephemeral storage it loses its uploads. The README now says so
+    and gives the remedy (`RETRAIN_ENABLED=false`, or an instance with at least 1 GB).
+  - Note: a first attempt at this test ran against a stale image (the background build
+    had failed); it was rebuilt and the test rerun.
+- [x] 8.4 The README Deployment section and Known limitations now carry the measured
+  numbers.
+
+**Commit:** `deploy: add RETRAIN_ENABLED switch and document retraining memory on Render`
 
 ---
 
