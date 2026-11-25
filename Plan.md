@@ -609,11 +609,11 @@ stays **on** in `render.yaml`)
 
 ## Phase 9 — Notebook updates  (P1, ~3 h) — G13
 
-**Status:** ☐ not started
+**Status:** ☑ done 2026-11-26
 
-- [ ] 9.1 Make the notebook runnable in this repo: cell 8's folder-name fix (from 1.6),
+- [x] 9.1 Make the notebook runnable in this repo: cell 8's folder-name fix (from 1.6),
   `data/raw` via the symlink (0.4), and dependencies from `requirements-dev.txt`.
-- [ ] 9.2 New `scripts/run_notebook_cells.py`. It uses `nbclient` to run a **chosen list of
+- [x] 9.2 New `scripts/run_notebook_cells.py`. It uses `nbclient` to run a **chosen list of
   cells** in order and saves outputs **only** for those cells, leaving every other output
   untouched.
   - Setup cells to run: imports, config, the helper functions, data loading and the split
@@ -622,7 +622,7 @@ stays **on** in `render.yaml`)
     is present), cell 14 (download), and **all training cells (about 54–64)**.
   - Target cells: **37** (sample images per class), **38** (Ben Graham comparison), **45**
     (pipeline stages), **48** (augmentation examples).
-- [ ] 9.3 Add **Section 14 — "Deployed model: test and prediction functions"**:
+- [x] 9.3 Add **Section 14 — "Deployed model: test and prediction functions"**:
   - Add the repo root to `sys.path` and import `src.prediction` and `src.model`, so the
     notebook uses **the same code as production**.
   - Load `../models/exp5_base.keras` and evaluate it on the same test split. Print
@@ -634,8 +634,26 @@ stays **on** in `render.yaml`)
     printed in Section 10 because that row came from a different training session than the
     saved model file.
   - Run only this section's cells with the same runner.
-- [ ] 9.4 A note at the top of the notebook linking the app and explaining where the
+- [x] 9.4 A note at the top of the notebook linking the app and explaining where the
   deployed model comes from.
+
+**What was done:**
+- `scripts/run_notebook_cells.py` edits the notebook as raw JSON, so only the cells that
+  ran change in the diff (the CRLF line endings are kept). It drops stderr streams
+  (TensorFlow log noise) and re-encodes PNG figures over 300 KB as JPEG; without that the
+  notebook grew to 9.1 MB, with it the file is 3.3 MB.
+- Run used: `--setup 6,7,8,9,18,20,22,35 --run 37,38,45,48,76,77,78,79`, with a prelude
+  that creates the `outputs/figures/` folders the cells save into. `outputs/` is now in
+  `.gitignore` and `.dockerignore`.
+- Section 14 is cells 75–80. 14.1 asserts the app's split selects the same 550 test images
+  as Section 3. 14.2 prints accuracy 0.618, QWK 0.588, AUC 0.839, weighted F1 0.625,
+  macro F1 0.426, Grade 3+4 recall 0.390 and a classification report, and asserts they
+  match `baseline_metrics.json`. 14.3 is the confusion matrix. 14.4 runs `predict_image()`
+  on three held-out images (`cd314653a4d8` grade 0, `05a5183c92d0` grade 1,
+  `e1fb532f55df` grade 3), all predicted correctly. 14.5 explains the gap to Section 10.
+- Cell 0 gained the deployment note and cell 3's table of contents a "7 — Deployment"
+  row. No other existing cell changed: every training-cell output is byte-identical.
+- README lists Section 14 and the two new scripts.
 
 **Done when:**
 - The 4 visual cells and Section 14 have outputs and nothing errors.

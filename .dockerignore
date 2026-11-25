@@ -28,6 +28,7 @@ data/raw
 data/train/*
 data/test/*
 backup/
+outputs/
 requirements-dev.txt
 models/exp5_current.keras
 models/exp5_staging.keras

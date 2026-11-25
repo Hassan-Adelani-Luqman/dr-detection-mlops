@@ -379,7 +379,15 @@ locust -f loadtest/locustfile.py --host http://localhost:8000   # interactive we
   224×224×3, output 5 classes). Committed; copied to `exp5_current.keras` at
   startup.
 - `notebook/diabetic_retinopathy_detection.ipynb` — the notebook that created
-  and evaluated the model.
+  and evaluated the model (preprocessing, 8 experiments with early stopping,
+  learning-rate scheduling, dropout, class weights and a grid search, and
+  accuracy / F1 / QWK / AUC / per-class recall / confusion matrices).
+  **Section 14** loads the deployed `models/exp5_base.keras` with the app's own
+  `src/` code, reproduces the held-out metrics below, prints a per-class
+  precision/recall/F1 report and a confusion matrix, and demonstrates the
+  single-image prediction function behind `/api/predict`. Section 14 and the
+  preprocessing figures (2.3, 2.4, 4.1, 5.1) were executed without re-running
+  training, using `scripts/run_notebook_cells.py`.
 
 ### Measured performance of the deployed model
 
@@ -421,6 +429,8 @@ scripts/
   prepare_data.py      build data/train (replay buffer) + data/test (eval set)
   evaluate_model.py    measure a model on the held-out test split
   pick_demo_images.py  held-out images the model grades correctly
+  compute_dataset_insights.py  per-grade image features for the Insights page
+  run_notebook_cells.py  run selected notebook cells without retraining
 tests/                 src, prediction, upload, base-model integrity
 Dockerfile  docker-compose.yml  render.yaml
 ```

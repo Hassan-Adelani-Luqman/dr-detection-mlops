@@ -28,6 +28,9 @@ data/test/*
 # No trailing slash, so the pattern matches the symlink itself. Never committed.
 data/raw
 
+# Figures the training notebook saves when its cells are run
+outputs/
+
 # Local backups of runtime state (registry, models, database, uploads)
 backup/
 
