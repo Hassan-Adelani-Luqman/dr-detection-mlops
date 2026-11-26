@@ -666,9 +666,11 @@ stays **on** in `render.yaml`)
 
 ## Phase 10 — Docs, cleanup, video, submission  (P0, ~4 h + recording) — G14
 
-**Status:** ☐ not started
+**Status:** ◐ 10.1, 10.2 and 10.5 done 2026-11-26. Per the user: they record the video,
+merge, push and submit themselves (10.4, 10.6, 10.7), and `VIDEO_GUIDE.md` is neither
+updated nor committed (10.3 dropped).
 
-- [ ] 10.1 Bring the README up to date:
+- [x] 10.1 Bring the README up to date:
   - **Links**: Render, Hugging Face, video, notebook.
   - **Features**: bulk upload, the evaluation gate, uptime and status, dataset insights,
     load testing.
@@ -683,13 +685,13 @@ stays **on** in `render.yaml`)
   - **Deployment**, **Project structure** (laid out like the brief's tree), **Tests**.
   - **Limitations**: the resolution and acquisition bias, weak Grades 2 and 4, ephemeral
     storage, and replicas versus retraining.
-- [ ] 10.2 Cleanup:
+- [x] 10.2 Cleanup:
   - `.gitignore`: `data/raw`, `data/train/*` and `data/test/*` (except the README and
     `manifest.csv`), `loadtest/images/`, `backup/`, `VIDEO_GUIDE.md`.
   - `.dockerignore`: `loadtest/`, `notebook/`, `data/raw`, `data/train/*`, `data/test/*`,
     `backup/`.
   - Remove any remaining stale comments.
-- [ ] 10.3 Update the untracked `VIDEO_GUIDE.md` for the new flow and held-out demo images.
+- [ ] ~~10.3~~ **Dropped by the user.** Update the untracked `VIDEO_GUIDE.md` for the new flow and held-out demo images.
 - [ ] 10.4 Re-record the video (D5). Camera on throughout, 5–7 minutes:
   1. Intro, then the live URL with the uptime pill.
   2. About 30 s on the Insights feature story.
@@ -701,7 +703,7 @@ stays **on** in `render.yaml`)
   8. A quick look at the Locust results.
 
   Upload it to YouTube (unlisted is fine) and update the README link.
-- [ ] 10.5 Fresh-clone check: `git clone` into a temporary folder, then
+- [x] 10.5 Fresh-clone check: `git clone` into a temporary folder, then
   `docker compose up --build`, `pytest`, and click through every page.
 - [ ] 10.6 Merge `fixes` into `main` and push.
 - [ ] 10.7 Submit. **Attempt 1:** a zip of the GitHub repo (GitHub "Download ZIP" of
@@ -709,6 +711,37 @@ stays **on** in `render.yaml`)
   `models/exp5_base.keras` and `notebook/`. **Attempt 2:** the GitHub URL. Each attempt
   has a fixed purpose, so **don't submit the zip until everything is final**. Aim to
   finish by Thursday afternoon.
+
+**What was done:**
+- README: new feature list, an architecture diagram with nginx, the replicas, the services,
+  `src/` and the data pools, an API table, a clone step, sections reordered into the order
+  above, the project tree laid out like the brief's, a separate Tests section and a fuller
+  Limitations section. Hugging Face is not mentioned (dropped in Phase 8). The **video link
+  is still the old video**: replace it after re-recording.
+- Cleanup: `VIDEO_GUIDE.md` is in `.gitignore` (file untouched); `outputs/` ignored in
+  Phase 9; no stale Hugging Face or TODO comments remain.
+- Fresh-clone check (clone of `fixes` at `2debeea` into a temporary folder):
+  - `pytest`: 61 passed, 7 skipped (the APTOS-image tests; the clone has no data), and
+    the run left the working tree clean.
+  - `docker compose up --build` (as a separate compose project, port 8090): both
+    containers healthy; every page and API endpoint returns 200; headless Chrome shows
+    the uptime pill on every page and 6 charts on Insights.
+  - All 15 held-out demo images predicted correctly.
+  - Bulk upload of those 15 images, then a retrain from the UI's API: 4 epochs (early
+    stopping), promoted, hot-swapped to v2 (peak memory about 650 MB); compared on the
+    validation split because a fresh clone has no held-out set. Rollback to `v1_base`
+    works.
+  - `--scale web=2`: requests split 5/5 between the two containers.
+  - Stack, image and clone removed afterwards.
+- Zip check: `git archive` of HEAD is 16 MB with 186 files and contains
+  `models/exp5_base.keras`, the notebook, `src/`, `data/train`, `data/test/manifest.csv`
+  and the Docker files. No APTOS images; `VIDEO_GUIDE.md` is not included.
+- The live Render app still runs the old `main` (`/api/status` returns 404). It should
+  redeploy when `main` is pushed.
+
+**Left for the user:** record the video and update the README link (10.4), merge `fixes`
+into `main` and push (10.6), confirm Render redeployed (`/api/status` returns 200 and the
+uptime pill shows), then submit the zip and the URL (10.7).
 
 **Commit:** `docs: final README with load-test results, setup and corrected metrics`
 
@@ -734,27 +767,28 @@ Phase 9, and Phase 10. Drop 1.9, 7.3/7.7, 8.2 and 9.2 first.
 
 **Rubric**
 - [ ] Video: camera on throughout; prediction **and** retraining both clearly shown.
-- [ ] Retraining: bulk upload saved to the database, preprocessing of the uploaded data,
+- [x] Retraining: bulk upload saved to the database, preprocessing of the uploaded data,
   and fine-tuning from `exp5` as the starting model, with the script and model file in the
   repo.
-- [ ] Prediction: a data point goes in and the **correct** class comes out (held-out demo
+- [x] Prediction: a data point goes in and the **correct** class comes out (held-out demo
   images), with the script (`src/prediction.py`) and the model file present.
-- [ ] Evaluation: the notebook shows preprocessing, optimisation (EarlyStopping,
+- [x] Evaluation: the notebook shows preprocessing, optimisation (EarlyStopping,
   ReduceLROnPlateau, Dropout, BatchNorm, class weights, grid search) and at least 4
   metrics, with no error cells.
 - [ ] Deployment: web UI, public URL plus Docker, and dataset insights.
 
 **Brief**
-- [ ] Model uptime is visible in the UI.
-- [ ] Data visualisations: at least 3 features, each with a written interpretation.
-- [ ] Train and retrain are reachable from the UI; the retrain trigger button works.
-- [ ] Bulk upload of multiple images.
-- [ ] Locust results with different numbers of containers are in the README.
-- [ ] Production evaluation of retrained models is demonstrated.
-- [ ] The repo layout has `README.md`, `notebook/`, `src/{preprocessing,model,prediction}.py`,
+- [x] Model uptime is visible in the UI.
+- [x] Data visualisations: at least 3 features, each with a written interpretation.
+- [x] Train and retrain are reachable from the UI; the retrain trigger button works.
+- [x] Bulk upload of multiple images.
+- [x] Locust results with different numbers of containers are in the README.
+- [x] Production evaluation of retrained models is demonstrated.
+- [x] The repo layout has `README.md`, `notebook/`, `src/{preprocessing,model,prediction}.py`,
   `data/{train,test}/` and `models/`.
-- [ ] The README has the video link, URLs, description, setup steps and flood results.
-- [ ] Cloud deployment works (and retraining there, or is clearly guarded).
+- [ ] The README has the video link (**still the old video: update it**), URLs, description, setup steps and flood results.
+- [ ] Cloud deployment works (and retraining there, or is clearly guarded). **Check
+  after pushing `main`: Render must redeploy the new code.**
 
 ---
 
