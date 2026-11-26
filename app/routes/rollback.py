@@ -5,13 +5,12 @@ base (v1_base), which lives at models/exp5_base.keras rather than in versions/.
 The version string is validated against the registry and checked for path
 traversal before any file operation.
 """
-import shutil
-
 from fastapi import APIRouter, HTTPException
 
-from app.config import BASE_MODEL_PATH, CURRENT_MODEL_PATH, VERSIONS_DIR
+from app.config import BASE_MODEL_PATH, VERSIONS_DIR
 from app.services import model_service
-from app.services.registry import BASE_VERSION, find_version, set_active_version
+from app.services.registry import (BASE_VERSION, find_version, install_current_model,
+                                   set_active_version)
 
 router = APIRouter()
 
@@ -30,7 +29,7 @@ def _version_source_path(version: str):
 
 
 @router.post("/api/rollback/{version}")
-async def api_rollback(version: str):
+def api_rollback(version: str):
     # Must be a version the registry knows about.
     if find_version(version) is None:
         raise HTTPException(status_code=404, detail=f"Unknown version: {version}")
@@ -42,8 +41,7 @@ async def api_rollback(version: str):
             detail=f"Model file for {version} is not available on disk.",
         )
 
-    # copyfile (not copy2): avoid EPERM from metadata copy on bind mounts.
-    shutil.copyfile(source, CURRENT_MODEL_PATH)
+    install_current_model(source)          # atomic: other replicas never see a partial file
     set_active_version(version)
     model_service.reload_model()
 

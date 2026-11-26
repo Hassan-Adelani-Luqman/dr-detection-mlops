@@ -41,7 +41,11 @@ def init_registry() -> dict:
                 f"Base model not found at {BASE_MODEL_PATH}. Cannot initialise."
             )
         # copyfile (not copy2): avoid EPERM from metadata copy on bind mounts.
-        shutil.copyfile(BASE_MODEL_PATH, CURRENT_MODEL_PATH)
+        # Copy to a temp name then rename, so another replica starting at the
+        # same time can never load a half-written model file.
+        tmp = CURRENT_MODEL_PATH.with_suffix(f".{os.getpid()}.tmp")
+        shutil.copyfile(BASE_MODEL_PATH, tmp)
+        os.replace(tmp, CURRENT_MODEL_PATH)
 
     if not REGISTRY_PATH.exists():
         registry = {
@@ -65,7 +69,7 @@ def init_registry() -> dict:
 
 def _write_registry(registry: dict) -> None:
     """Atomically write the registry JSON (temp file + os.replace)."""
-    tmp = REGISTRY_PATH.with_suffix(".json.tmp")
+    tmp = REGISTRY_PATH.with_suffix(f".{os.getpid()}.json.tmp")
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(registry, fh, indent=2)
     os.replace(tmp, REGISTRY_PATH)
@@ -77,6 +81,33 @@ def get_registry() -> dict:
         return init_registry()
     with open(REGISTRY_PATH, encoding="utf-8") as fh:
         return json.load(fh)
+
+
+def install_current_model(source) -> None:
+    """Make ``source`` the served model file, atomically (temp copy + rename).
+
+    Other replicas may load the current model at any moment, so it must never
+    be visible half-written.
+    """
+    tmp = CURRENT_MODEL_PATH.with_suffix(f".{os.getpid()}.tmp")
+    shutil.copyfile(source, tmp)          # copyfile: no metadata (bind-mount safe)
+    os.replace(tmp, CURRENT_MODEL_PATH)
+
+
+def register_version(entry: dict, promote: bool) -> dict:
+    """Append a retrained version to the history; make it active only if ``promote``.
+
+    Every retrain counts (rejected candidates are kept and can be activated later).
+    """
+    registry = get_registry()
+    registry["history"].append(entry)
+    if entry.get("type") == "retrained":
+        registry["retrain_count"] = registry.get("retrain_count", 0) + 1
+        registry["last_retrained"] = entry.get("created_at", _now_iso())
+    if promote:
+        registry["active_version"] = entry["version"]
+    _write_registry(registry)
+    return registry
 
 
 def update_registry(new_entry: dict, active_version: str) -> dict:

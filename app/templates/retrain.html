@@ -4,23 +4,32 @@
 {% block content %}
 <section class="page-head">
   <h1>Retrain the Model</h1>
-  <p class="muted">Fine-tune the classifier head on the current training pool
-    (seed replay buffer + your uploads) using the active model as a pre-trained
-    base. The convolutional backbone stays frozen, so training completes in
-    minutes. A new versioned model is created &mdash; the original is never
-    overwritten.</p>
+  <p class="muted">Fine-tune the model on the training pool (replay buffer + your
+    uploads) using the model being served as the pre-trained base, with its
+    convolutional backbone frozen. Then both models are scored on the same held-out
+    images, and the new one is <strong>promoted only if it is not worse</strong>.
+    Every new version is saved; the original is never overwritten.</p>
 </section>
 
 <div class="card">
-  <button id="start-btn" class="btn btn-primary" style="max-width:260px">
-    Start Retraining
-  </button>
-  <div id="status-line" class="status-line" hidden></div>
+  <h3>Training data</h3>
+  <div class="status-grid" id="ready-grid"><span class="muted">Loading…</span></div>
+  <div id="ready-banner" class="banner" hidden></div>
+  <p class="muted small" id="ready-rule"></p>
+  <button id="start-btn" class="btn btn-primary" style="max-width:260px">Start Retraining</button>
   <div id="error" class="error-box" hidden></div>
 </div>
 
 <div class="card" id="progress-card" hidden>
-  <h3>Training Progress</h3>
+  <h3>Progress</h3>
+  <ol class="stages" id="stages">
+    <li data-stage="loading">Load the pre-trained base</li>
+    <li data-stage="preprocessing">Preprocess the images</li>
+    <li data-stage="training">Fine-tune the classifier head</li>
+    <li data-stage="evaluating">Evaluate both models on held-out images</li>
+    <li data-stage="saving">Decide and save the new version</li>
+  </ol>
+  <div id="status-line" class="status-line"></div>
   <div class="progress-track"><div id="progress-bar" class="progress-bar"></div></div>
   <table class="count-table" id="epoch-table">
     <thead><tr><th>Epoch</th><th>Loss</th><th>Accuracy</th>
@@ -30,85 +39,171 @@
 </div>
 
 <div class="card" id="done-card" hidden>
-  <h3>Retraining Complete</h3>
-  <div id="done-body"></div>
+  <h3>Result</h3>
+  <div id="decision"></div>
+  <p class="muted small" id="compare-source"></p>
+  <div class="table-scroll"><table class="count-table compare" id="compare-table"></table></div>
+  <ul class="done-list" id="done-list"></ul>
+  <p class="muted">See every version in <a href="/insights">Insights</a>, where any of
+    them can be activated.</p>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-const startBtn = document.getElementById('start-btn');
-const statusLine = document.getElementById('status-line');
-const errorBox = document.getElementById('error');
-const progressCard = document.getElementById('progress-card');
-const progressBar = document.getElementById('progress-bar');
-const epochBody = document.getElementById('epoch-body');
-const doneCard = document.getElementById('done-card');
-const doneBody = document.getElementById('done-body');
+const $ = id => document.getElementById(id);
+const STAGES = ['loading', 'preprocessing', 'training', 'evaluating', 'saving'];
 let poll = null;
 
-startBtn.addEventListener('click', async () => {
-  errorBox.hidden = true; doneCard.hidden = true; epochBody.innerHTML = '';
-  progressBar.style.width = '0%';
-  startBtn.disabled = true;
-  statusLine.hidden = false;
-  statusLine.textContent = 'Starting retraining…';
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+// ---- Readiness: pool sizes and the retraining trigger -------------------------
+async function loadReadiness() {
+  try {
+    const r = await (await fetch('/api/retrain/readiness', { cache: 'no-store' })).json();
+    const items = [
+      ['Training pool', `${r.training_pool} images`],
+      ['Held-out evaluation set', `${r.eval_set} images`],
+      ['New uploads since last retrain', r.new_since_last_retrain],
+      ['Last retrained', r.last_retrained ? new Date(r.last_retrained).toLocaleString() : 'never'],
+    ];
+    $('ready-grid').innerHTML = items.map(([k, v]) =>
+      `<div class="status-item"><span class="status-val">${v}</span><span class="status-key">${k}</span></div>`).join('');
+    const banner = $('ready-banner');
+    if (r.recommended) {
+      banner.className = 'banner banner-go';
+      banner.textContent = `Retraining recommended: ${r.new_since_last_retrain} new labelled images ` +
+        `since the last retrain (threshold ${r.threshold}).` +
+        (r.auto_retrain ? ' Automatic retraining is on, so the next upload will start it.' : '');
+    } else {
+      banner.className = 'banner';
+      banner.textContent = `Retraining is recommended once ${r.threshold} new labelled images have been ` +
+        `uploaded (${r.new_since_last_retrain} so far). You can retrain at any time.` +
+        (r.auto_retrain ? ' Automatic retraining is on.' : '');
+    }
+    banner.hidden = false;
+    if (r.eval_set === 0)
+      banner.textContent += ' No held-out evaluation set yet: models will be compared on the validation split instead.';
+    if (!r.retrain_enabled) {
+      banner.className = 'banner banner-hold';
+      banner.textContent = r.disabled_message;
+      $('start-btn').disabled = true;
+      $('start-btn').title = 'Retraining is turned off on this deployment';
+    }
+    $('ready-rule').textContent =
+      `Promotion rule: the new model replaces the current one unless its QWK drops by more than ` +
+      `${r.promotion_rule.qwk_tolerance.toFixed(2)} or its Grade 3+4 recall by more than ` +
+      `${r.promotion_rule.recall_tolerance.toFixed(2)} on the held-out images.`;
+  } catch (e) { /* the status pill already shows if the service is down */ }
+}
+
+// ---- Start + poll --------------------------------------------------------------
+$('start-btn').addEventListener('click', async () => {
+  $('error').hidden = true; $('done-card').hidden = true; $('epoch-body').innerHTML = '';
+  $('start-btn').disabled = true;
   try {
     const resp = await fetch('/api/retrain', { method: 'POST' });
     const json = await resp.json();
     if (!resp.ok) throw new Error(json.detail || 'Could not start retraining.');
-    progressCard.hidden = false;
-    poll = setInterval(checkStatus, 3000);
-    checkStatus();
+    startPolling();
   } catch (err) {
-    errorBox.textContent = err.message; errorBox.hidden = false;
-    statusLine.hidden = true; startBtn.disabled = false;
+    $('error').textContent = err.message; $('error').hidden = false;
+    $('start-btn').disabled = false;
   }
 });
 
-async function checkStatus() {
-  const resp = await fetch('/api/retrain/status');
-  const s = await resp.json();
-  if (s.total_epochs) {
-    statusLine.textContent =
-      `Training… epoch ${s.current_epoch} / ${s.total_epochs}`;
-    progressBar.style.width =
-      Math.round((s.current_epoch / s.total_epochs) * 100) + '%';
-  }
-  renderEpochs(s.logs || []);
-  if (s.status === 'complete') { stopPoll(); renderDone(s.result); }
-  else if (s.status === 'error') {
-    stopPoll();
-    errorBox.textContent = s.error || 'Retraining failed.'; errorBox.hidden = false;
-    statusLine.hidden = true; startBtn.disabled = false;
-  }
+function startPolling() {
+  $('progress-card').hidden = false;
+  if (!poll) poll = setInterval(checkStatus, 2000);
+  checkStatus();
 }
 
-function renderEpochs(logs) {
-  epochBody.innerHTML = logs.map(l =>
+function progressFor(s) {
+  const i = STAGES.indexOf(s.stage);
+  if (s.stage === 'training' && s.total_epochs)
+    return 20 + 60 * (s.current_epoch / s.total_epochs);
+  return { loading: 5, preprocessing: 12, evaluating: 85, saving: 95, done: 100 }[s.stage] ?? (i < 0 ? 2 : 0);
+}
+
+function renderStages(stage, finished) {
+  const current = STAGES.indexOf(stage);
+  document.querySelectorAll('#stages li').forEach((li, i) => {
+    li.className = finished || i < current ? 'done' : (i === current ? 'current' : '');
+  });
+}
+
+async function checkStatus() {
+  const s = await (await fetch('/api/retrain/status', { cache: 'no-store' })).json();
+  if (s.status === 'idle') { stopPoll(); $('progress-card').hidden = true; return; }
+  $('progress-card').hidden = false;
+  $('start-btn').disabled = s.status === 'running';
+  $('status-line').textContent = (s.trigger === 'automatic' ? '[automatic] ' : '') + (s.stage_text || '');
+  $('progress-bar').style.width = Math.round(progressFor(s)) + '%';
+  renderStages(s.stage, s.status === 'complete');
+  $('epoch-body').innerHTML = (s.logs || []).map(l =>
     `<tr><td>${l.epoch}</td><td>${l.loss}</td><td>${l.accuracy}</td>
      <td>${l.val_loss}</td><td>${l.val_accuracy}</td></tr>`).join('');
-}
-
-function renderDone(r) {
-  statusLine.hidden = true;
-  progressBar.style.width = '100%';
-  startBtn.disabled = false;
-  doneCard.hidden = false;
-  doneBody.innerHTML = `
-    <p><strong>Model updated to <code>${r.version}</code></strong></p>
-    <ul class="done-list">
-      <li>Trained on <strong>${r.samples}</strong> images
-          (${r.n_train} train / ${r.n_val} val)</li>
-      <li>Epochs run: ${r.epochs_run}</li>
-      <li>Final accuracy: ${(r.final_accuracy * 100).toFixed(1)}%
-          (val ${(r.final_val_accuracy * 100).toFixed(1)}%)</li>
-      <li>Final loss: ${r.final_loss}</li>
-    </ul>
-    <p class="muted">This version is now serving predictions. View it in
-       <a href="/insights">Insights</a>.</p>`;
+  if (s.status === 'complete') { stopPoll(); renderDone(s.result); loadReadiness(); }
+  else if (s.status === 'error') {
+    stopPoll();
+    $('error').textContent = s.error || 'Retraining failed.'; $('error').hidden = false;
+    $('start-btn').disabled = false;
+  }
 }
 
 function stopPoll() { if (poll) { clearInterval(poll); poll = null; } }
+
+// ---- Result: decision + side-by-side comparison ---------------------------------
+const ROWS = [
+  ['qwk', 'Quadratic Weighted Kappa'],
+  ['grade34_recall', 'Grade 3+4 recall'],
+  ['accuracy', 'Accuracy'],
+  ['weighted_f1', 'Weighted F1'],
+  ['auc', 'AUC (one-vs-rest)'],
+];
+
+function renderDone(r) {
+  $('start-btn').disabled = false;
+  $('done-card').hidden = false;
+  const kept = r.previous_version;
+  $('decision').innerHTML = r.promoted
+    ? `<div class="banner banner-go"><strong>✓ Promoted.</strong> <code>${esc(r.version)}</code> is now serving
+       predictions. ${esc(r.decision_reason)}</div>`
+    : `<div class="banner banner-hold"><strong>✕ Not promoted.</strong> <code>${esc(kept)}</code> keeps serving.
+       ${esc(r.decision_reason)} The new version <code>${esc(r.version)}</code> is saved and can be
+       activated from Insights.</div>`;
+  $('compare-source').textContent =
+    `Both models scored on the same ${r.eval.n} images (${r.eval.source}).`;
+  const fmt = v => (v == null ? '—' : v.toFixed(3));
+  const change = (a, b) => {
+    if (a == null || b == null) return '—';
+    const d = b - a;
+    if (Math.abs(d) < 0.0005) return '<span class="delta">= 0.000</span>';
+    return d > 0 ? `<span class="delta up">▲ +${d.toFixed(3)}</span>`
+                 : `<span class="delta down">▼ ${d.toFixed(3)}</span>`;
+  };
+  $('compare-table').innerHTML =
+    `<thead><tr><th>Metric</th><th>Current <code>${esc(kept)}</code></th>
+       <th>New <code>${esc(r.version)}</code></th><th>Change</th></tr></thead><tbody>` +
+    ROWS.map(([k, label]) => `<tr><td>${label}</td><td>${fmt(r.eval.previous[k])}</td>
+       <td>${fmt(r.eval.candidate[k])}</td><td>${change(r.eval.previous[k], r.eval.candidate[k])}</td></tr>`).join('') +
+    '</tbody>';
+  const counts = Object.entries(r.train_counts_by_grade).map(([g, n]) => `${n} ${g}`).join(', ');
+  $('done-list').innerHTML = `
+    <li>Trained on <strong>${r.samples}</strong> images (${r.n_train} train / ${r.n_val} validation,
+        ${r.split} split): ${esc(counts)}</li>
+    <li>Epochs run: ${r.epochs_run} (early stopping keeps the best epoch)</li>
+    <li>Training accuracy ${(r.train_accuracy * 100).toFixed(1)}%, validation
+        ${(r.final_val_accuracy * 100).toFixed(1)}% (the held-out comparison above is the one that counts)</li>`;
+}
+
+// Resume if a retrain is already running (page reload, or an automatic retrain).
+loadReadiness();
+fetch('/api/retrain/status', { cache: 'no-store' }).then(r => r.json()).then(s => {
+  if (s.status === 'running') startPolling();
+  else if (s.status === 'complete' && s.result) { $('progress-card').hidden = false; checkStatus(); }
+});
 </script>
 {% endblock %}

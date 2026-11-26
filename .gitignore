@@ -5,7 +5,7 @@ __pycache__/
 .env
 *.log
 
-# Root-level source artifacts (copied into models/ and notebooks/; do not double-commit)
+# Root-level source artifacts (copied into models/ and notebook/; do not double-commit)
 /exp5_deep_cnn.keras
 /diabetic_retinopathy_detection.ipynb
 
@@ -13,6 +13,29 @@ __pycache__/
 data/uploads/*
 !data/uploads/.gitkeep
 data/app.db
+
+# Replay buffer and held-out evaluation images (APTOS, not redistributable).
+# Keep the folder READMEs, .gitkeep and the evaluation manifest.
+data/train/*
+!data/train/.gitkeep
+!data/train/README.md
+data/test/*
+!data/test/.gitkeep
+!data/test/README.md
+!data/test/manifest.csv
+
+# Local APTOS dataset: a symlink to the original project's data/raw.
+# No trailing slash, so the pattern matches the symlink itself. Never committed.
+data/raw
+
+# Figures the training notebook saves when its cells are run
+outputs/
+
+# Personal notes for recording the demo video (not part of the submission)
+VIDEO_GUIDE.md
+
+# Local backups of runtime state (registry, models, database, uploads)
+backup/
 
 # Runtime-generated models (regenerated from exp5_base.keras at startup)
 models/exp5_current.keras
@@ -28,3 +51,11 @@ tests/sample_images/*
 demo_images/
 
 # NOTE: models/exp5_base.keras IS committed (needed for deployment).
+
+# Load testing: images are APTOS (not redistributable); keep the summarised
+# results, drop Locust's bulky per-second history and raw logs.
+loadtest/images/
+loadtest/results/**/*_stats_history.csv
+loadtest/results/**/*_exceptions.csv
+loadtest/results/**/*.log
+loadtest/results/**/*.html

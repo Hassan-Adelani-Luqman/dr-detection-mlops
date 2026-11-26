@@ -1,0 +1,5 @@
+date: 2026-11-24T05:52:17Z
+target: https://dr-detection-mlops-69ui.onrender.com (Render free tier: 1 instance, 0.1 CPU, 512 MB; code from the main branch at the time)
+locust: 5 users, spawn 1/s, 1 minute, wait 0.5-1.5 s, images <= 1.1 MB (LOADTEST_MAX_KB=1100; 6 held-out images)
+warm-up: cold start of /health took 57.8 s; one prediction before the run took 4.5 s
+client: home connection, 4-CPU laptop
