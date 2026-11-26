@@ -31,6 +31,9 @@ data/raw
 # Figures the training notebook saves when its cells are run
 outputs/
 
+# Personal notes for recording the demo video (not part of the submission)
+VIDEO_GUIDE.md
+
 # Local backups of runtime state (registry, models, database, uploads)
 backup/
 

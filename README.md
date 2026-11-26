@@ -24,18 +24,29 @@ specialist ophthalmologists are scarce.
 
 - **Predict** — upload a fundus image and get its DR grade (0–4) with per-class
   confidence and a clinical action note.
-- **Upload (bulk)** — add many labelled images at once (one grade per batch), or
+- **Bulk upload** — add many labelled images at once (one grade per batch), or
   a ZIP with a folder per grade (`0/` … `4/`). Each image is checked and saved to
   the database, into either the **training pool** (used for retraining) or the
   held-out **evaluation set** (used to measure models, never trained on). Bad files
   are listed with the reason; the rest are kept.
-- **Retrain** — fine-tune a new model version from the pool using the active
-  model as a pre-trained base. The convolutional backbone is frozen so only the
-  classifier head trains — fast enough for CPU. **The original weights are never
-  overwritten.**
-- **Rollback** — restore any previous model version with one click.
-- **Insights** — dataset class distribution, baseline metrics, and full model
-  version history.
+- **Retrain on demand** — one button fine-tunes a new model version from the
+  training pool, using the served model as the pre-trained base with its
+  convolutional backbone frozen, so it runs on a CPU. Each stage and the
+  epoch-by-epoch metrics show live.
+- **Evaluation gate** — the new model and the served model are scored on the same
+  held-out images, and the new one is promoted only if it is not worse. Every
+  version is kept, and **the original weights are never overwritten.**
+- **Rollback** — activate any earlier model version with one click.
+- **Uptime and status** — a pill on every page shows whether the model is up,
+  for how long, and which version is serving (`/health`). The Insights page adds
+  requests and predictions served, errors and prediction latency (`/api/status`).
+- **Insights** — four dataset features charted by grade, each with a written
+  interpretation, plus the class balance, the deployed model's held-out metrics
+  and every model version with its metrics and promotion decision.
+- **Scales out** — `docker compose` puts an nginx load balancer in front of any
+  number of app containers. A Locust flood test measured 1, 2 and 3 containers.
+
+---
 
 ## Grade scale
 
@@ -52,26 +63,31 @@ specialist ophthalmologists are scarce.
 ## Architecture
 
 ```
-                         ┌─────────────────────────────────────────┐
-                         │            FastAPI + Uvicorn             │
-  Browser  ──HTTP──▶     │  ┌───────────────────────────────────┐  │
-  (Jinja2 +              │  │ Routes: predict / upload / retrain │  │
-   Chart.js)             │  │         rollback / insights        │  │
-                         │  └───────────────────────────────────┘  │
-                         │        │            │            │        │
-                         │        ▼            ▼            ▼        │
-                         │  ┌──────────┐ ┌──────────┐ ┌──────────┐  │
-                         │  │  model   │ │ retrain  │ │ registry │  │
-                         │  │ service  │ │ service  │ │  (JSON)  │  │
-                         │  │ (TF/Keras│ │ (freeze +│ │ versions │  │
-                         │  │  + lock) │ │ fine-tune│ │ + active │  │
-                         │  └────┬─────┘ └────┬─────┘ └────┬─────┘  │
-                         └───────┼────────────┼────────────┼────────┘
-                                 │            │            │
-                          ┌──────▼─────┐ ┌────▼─────┐ ┌────▼─────────┐
-                          │ exp5_*.keras│ │ SQLite   │ │ models/      │
-                          │ base/current│ │ (uploads)│ │ versions/*   │
-                          └────────────┘ └──────────┘ └──────────────┘
+           Browser: Jinja2 pages + Chart.js
+                         │ HTTP
+                         ▼
+           ┌──────────────────────────────┐   docker compose only; Render
+           │ nginx load balancer (lb)     │   runs one container, no nginx
+           │ round-robin                  │
+           └────────┬─────────┬─────────┬─┘
+                    ▼         ▼         ▼
+  ┌────────────────────────────────────────────────────────────────┐
+  │ web replicas 1…N: FastAPI + Uvicorn, 1 CPU each                │
+  │                                                                │
+  │ routes    pages · predict · upload · retrain · rollback ·      │
+  │           insights · status                                    │
+  │ services  model_service (lock, hot-swap, admission control)    │
+  │           retrain_service · promotion (the gate) · registry    │
+  │           pool (training vs evaluation) · monitor (uptime)     │
+  │ src/      preprocessing · model · prediction                   │
+  │           (also imported by the notebook's Section 14)         │
+  └──────┬───────────────────┬───────────────────┬─────────────────┘
+         ▼                   ▼                   ▼
+  models/ (volume)     data/app.db (SQLite)  data/ (volume)
+  exp5_base.keras      one row per image:    train/    replay buffer
+  exp5_current.keras   path, grade, pool     test/     evaluation set
+  versions/*.keras     (seed / user / eval)  uploads/  user images
+  model_registry.json
 ```
 
 - **Backend:** FastAPI + Uvicorn
@@ -79,8 +95,127 @@ specialist ophthalmologists are scarce.
 - **Database:** SQLite via SQLAlchemy
 - **Frontend:** Jinja2 server-side templates + Chart.js (no build step)
 - **Image processing:** OpenCV (headless) + NumPy
-- **Container:** Docker + docker-compose
+- **Containers:** Docker + docker compose, nginx load balancer
+- **Load testing:** Locust
 - **Hosting:** Render (Docker runtime)
+
+### API
+
+Interactive documentation is served at `/docs`.
+
+| Method | Path | What it does |
+|---|---|---|
+| GET | `/`, `/predict`, `/upload`, `/retrain`, `/insights` | The web pages |
+| POST | `/api/predict` | One image in; grade, label, per-class probabilities and clinical note out |
+| POST | `/api/upload` | One labelled image, into the training pool or the evaluation set |
+| POST | `/api/upload/bulk` | Many images with one grade |
+| POST | `/api/upload/zip` | A ZIP with a folder per grade |
+| POST | `/api/retrain` | Start retraining (409 if one is running, 503 if switched off) |
+| GET | `/api/retrain/status` | Live stage, epoch metrics and the result |
+| GET | `/api/retrain/readiness` | Pool sizes, the retraining trigger and the promotion rule |
+| POST | `/api/rollback/{version}` | Make a saved version the active model |
+| GET | `/api/insights` | Dataset features, metrics and the version history |
+| GET | `/health` | Up or down, uptime, active version |
+| GET | `/api/status` | Serving counters and prediction latency |
+
+---
+
+## Local setup
+
+```bash
+git clone https://github.com/Hassan-Adelani-Luqman/dr-detection-mlops.git
+cd dr-detection-mlops
+```
+
+### With Docker (recommended — matches production)
+
+```bash
+docker compose up --build
+# open http://localhost:8000        (APP_PORT=8080 docker compose up ... if 8000 is taken)
+```
+
+Compose runs an **nginx load balancer** (`lb`) in front of the app (`web`). To
+scale out:
+
+```bash
+docker compose up -d --scale web=3
+docker compose restart lb            # nginx picks up the new replicas
+```
+
+Each replica is limited to one CPU (`WEB_CPUS`, default 1.0) with single-threaded
+TensorFlow, so every extra container adds one CPU of inference capacity. Every
+response carries an `X-Served-By` header naming the container that served it.
+Replicas share the `./models` and `./data` volumes (uploads, the database, the
+registry and retrained versions persist across restarts) and stay on the same
+model version: each checks the registry before predicting and reloads if another
+replica retrained or rolled back. **Retrain with a single replica**: retraining
+progress is held in the memory of the replica that runs it, so with several
+replicas the status page may poll a different one.
+
+### Without Docker
+
+```bash
+python -m venv .venv
+# Windows: .\.venv\Scripts\Activate.ps1   |   Unix: source .venv/bin/activate
+pip install -r requirements-dev.txt      # runtime + tests, Locust, notebook tools
+uvicorn app.main:app --reload
+# open http://localhost:8000
+```
+
+### Getting the data (needed for retraining and evaluation)
+
+Prediction works out of the box. Retraining and the evaluation scripts need the
+APTOS 2019 images, which cannot be redistributed:
+
+1. Accept the competition rules at
+   <https://www.kaggle.com/competitions/aptos2019-blindness-detection>.
+2. Download and unzip into `data/raw/` (so that `data/raw/train.csv` and
+   `data/raw/train_images/` exist), for example with the Kaggle CLI:
+   `kaggle competitions download -c aptos2019-blindness-detection -p data/raw`.
+3. Build the replay buffer and the held-out evaluation set, re-measure the model,
+   and pick demo images it grades correctly:
+
+```bash
+python -m scripts.prepare_data          # data/train (200) + data/test (550)
+python -m scripts.evaluate_model        # -> models/baseline_metrics.json
+python -m scripts.pick_demo_images      # -> demo_images/, tests/sample_images/
+```
+
+---
+
+## Model & notebook
+
+- `models/exp5_base.keras` — the trained 5-class model (1.24 M params, input
+  224×224×3, output 5 classes). Committed; copied to `exp5_current.keras` at
+  startup. `.keras` is TensorFlow's native single-file Keras format (the
+  successor to `.h5`); load it with `tf.keras.models.load_model` or
+  `src.model.load_model`.
+- `notebook/diabetic_retinopathy_detection.ipynb` — the notebook that created
+  and evaluated the model (preprocessing, 8 experiments with early stopping,
+  learning-rate scheduling, dropout, class weights and a grid search, and
+  accuracy / F1 / QWK / AUC / per-class recall / confusion matrices).
+  **Section 14** loads the deployed `models/exp5_base.keras` with the app's own
+  `src/` code, reproduces the held-out metrics below, prints a per-class
+  precision/recall/F1 report and a confusion matrix, and demonstrates the
+  single-image prediction function behind `/api/predict`. Section 14 and the
+  preprocessing figures (2.3, 2.4, 4.1, 5.1) were executed without re-running
+  training, using `scripts/run_notebook_cells.py`.
+
+### Measured performance of the deployed model
+
+Measured on the **550 held-out test images** (the notebook's stratified split,
+seed 42) with the app's own preprocessing, by `scripts/evaluate_model.py`.
+Full results, including the confusion matrix, are in
+[`models/baseline_metrics.json`](models/baseline_metrics.json).
+
+| Accuracy | QWK | AUC (one-vs-rest) | Weighted F1 | Grade 3+4 recall |
+|---------:|----:|------------------:|------------:|-----------------:|
+| 0.618 | 0.588 | 0.839 | 0.625 | 0.390 |
+
+Grade 3+4 recall is the mean of the Severe (0.621) and Proliferative (0.159)
+recalls. These numbers come from the committed model file itself; they differ
+from the Exp 5 row printed in the notebook, which came from a different training
+session than the saved model.
 
 ---
 
@@ -154,6 +289,8 @@ split (seed 42), and checks that they never overlap:
 
 `data/test/manifest.csv` lists the evaluation images and their true grades.
 
+---
+
 ## Model versioning & rollback
 
 - `exp5_base.keras` — the original trained model. **Committed, never modified.**
@@ -165,112 +302,6 @@ split (seed 42), and checks that they never overlap:
 
 Any version — including the original `v1_base` — can be promoted back to active
 from the **Insights** page with one click.
-
----
-
-## Local setup
-
-### With Docker (recommended — matches production)
-
-```bash
-docker compose up --build
-# open http://localhost:8000        (APP_PORT=8080 docker compose up ... if 8000 is taken)
-```
-
-Compose runs an **nginx load balancer** (`lb`) in front of the app (`web`). To
-scale out:
-
-```bash
-docker compose up -d --scale web=3
-docker compose restart lb            # nginx picks up the new replicas
-```
-
-Each replica is limited to one CPU (`WEB_CPUS`, default 1.0) with single-threaded
-TensorFlow, so every extra container adds one CPU of inference capacity. Every
-response carries an `X-Served-By` header naming the container that served it.
-Replicas share the `./models` and `./data` volumes (uploads, the database, the
-registry and retrained versions persist across restarts) and stay on the same
-model version: each checks the registry before predicting and reloads if another
-replica retrained or rolled back. **Retrain with a single replica**: retraining
-progress is held in the memory of the replica that runs it, so with several
-replicas the status page may poll a different one.
-
-### Without Docker
-
-```bash
-python -m venv .venv
-# Windows: .\.venv\Scripts\Activate.ps1   |   Unix: source .venv/bin/activate
-pip install -r requirements-dev.txt      # runtime + tests, Locust, notebook tools
-uvicorn app.main:app --reload
-# open http://localhost:8000
-```
-
-### Getting the data (needed for retraining and evaluation)
-
-Prediction works out of the box. Retraining and the evaluation scripts need the
-APTOS 2019 images, which cannot be redistributed:
-
-1. Accept the competition rules at
-   <https://www.kaggle.com/competitions/aptos2019-blindness-detection>.
-2. Download and unzip into `data/raw/` (so that `data/raw/train.csv` and
-   `data/raw/train_images/` exist), for example with the Kaggle CLI:
-   `kaggle competitions download -c aptos2019-blindness-detection -p data/raw`.
-3. Build the replay buffer and the held-out evaluation set, re-measure the model,
-   and pick demo images it grades correctly:
-
-```bash
-python -m scripts.prepare_data          # data/train (200) + data/test (550)
-python -m scripts.evaluate_model        # -> models/baseline_metrics.json
-python -m scripts.pick_demo_images      # -> demo_images/, tests/sample_images/
-```
-
-### Running the tests
-
-```bash
-pytest
-```
-
-Covers preprocessing, prediction, the metrics, the backbone freeze, upload, the
-separation of training and evaluation data, and a **base-model integrity** test
-asserting the original weights are never modified by registry operations. Tests
-that need APTOS images are skipped when `data/raw` or `tests/sample_images` is
-empty.
-
----
-
-## Deployment
-
-### Live: Render (Docker runtime)
-
-The app is deployed on Render from this repository's `Dockerfile`, serving a
-public HTTPS URL. Render injects `PORT`; the container binds it automatically.
-
-**Prediction, upload and Insights** run comfortably on the live URL.
-**Retraining** is switched on there too (`RETRAIN_ENABLED: "true"` in
-`render.yaml`), but it needs far more memory than prediction. Measured in Docker
-with the same image:
-
-| Memory limit | Idle | Retrain (15 uploaded images) |
-|---|---|---|
-| 512 MB, no swap (Render free tier) | ~380 MB | **killed for running out of memory** as training starts (exit 137); the service restarts and, with ephemeral storage, loses its uploads |
-| 2 GB | ~380 MB | completes; peak about 780 MB |
-
-So live retraining needs an instance with at least 1 GB (for example Render's
-2 GB plan). On the free tier, set `RETRAIN_ENABLED` to `"false"`: the Retrain
-page then explains that retraining is turned off on that host, and the API
-returns 503, instead of the service being killed mid-retrain. The full pipeline
-(upload → retrain → evaluate → promote) runs in the **containerised app locally**
-(`docker compose up`), which also carries the replay buffer and the held-out
-evaluation set.
-
-`render.yaml` is included for reproducible Render deployment.
-
-### Note on storage & cold starts
-
-Free-tier storage is **ephemeral**: uploaded images, the database, and retrained
-versions reset on restart/redeploy. This is acceptable for the demo — the base
-model is baked into the image, so prediction always works. Free instances also
-sleep when idle; the first request after inactivity takes 30–60 s.
 
 ---
 
@@ -302,6 +333,8 @@ measured behaviour: 89% recall on No DR but poor separation of grades 1–4. The
 green channel, where lesions show the most contrast, is darker in every disease
 grade but does not keep falling with severity, and sharpness shows no trend, so
 image quality is not what separates the grades.
+
+---
 
 ## Flood Request Simulation (Locust) — Results
 
@@ -373,78 +406,132 @@ python loadtest/summarize.py                    # table + chart in loadtest/resu
 locust -f loadtest/locustfile.py --host http://localhost:8000   # interactive web UI
 ```
 
-## Model & notebook
+---
 
-- `models/exp5_base.keras` — the trained 5-class model (1.24 M params, input
-  224×224×3, output 5 classes). Committed; copied to `exp5_current.keras` at
-  startup.
-- `notebook/diabetic_retinopathy_detection.ipynb` — the notebook that created
-  and evaluated the model (preprocessing, 8 experiments with early stopping,
-  learning-rate scheduling, dropout, class weights and a grid search, and
-  accuracy / F1 / QWK / AUC / per-class recall / confusion matrices).
-  **Section 14** loads the deployed `models/exp5_base.keras` with the app's own
-  `src/` code, reproduces the held-out metrics below, prints a per-class
-  precision/recall/F1 report and a confusion matrix, and demonstrates the
-  single-image prediction function behind `/api/predict`. Section 14 and the
-  preprocessing figures (2.3, 2.4, 4.1, 5.1) were executed without re-running
-  training, using `scripts/run_notebook_cells.py`.
+## Deployment
 
-### Measured performance of the deployed model
+### Live: Render (Docker runtime)
 
-Measured on the **550 held-out test images** (the notebook's stratified split,
-seed 42) with the app's own preprocessing, by `scripts/evaluate_model.py`.
-Full results, including the confusion matrix, are in
-[`models/baseline_metrics.json`](models/baseline_metrics.json).
+The app is deployed on Render from this repository's `Dockerfile`, serving a
+public HTTPS URL. Render injects `PORT`; the container binds it automatically.
 
-| Accuracy | QWK | AUC (one-vs-rest) | Weighted F1 | Grade 3+4 recall |
-|---------:|----:|------------------:|------------:|-----------------:|
-| 0.618 | 0.588 | 0.839 | 0.625 | 0.390 |
+**Prediction, upload and Insights** run comfortably on the live URL.
+**Retraining** is switched on there too (`RETRAIN_ENABLED: "true"` in
+`render.yaml`), but it needs far more memory than prediction. Measured in Docker
+with the same image:
 
-Grade 3+4 recall is the mean of the Severe (0.621) and Proliferative (0.159)
-recalls. These numbers come from the committed model file itself; they differ
-from the Exp 5 row printed in the notebook, which came from a different training
-session than the saved model.
+| Memory limit | Idle | Retrain (15 uploaded images) |
+|---|---|---|
+| 512 MB, no swap (Render free tier) | ~380 MB | **killed for running out of memory** as training starts (exit 137); the service restarts and, with ephemeral storage, loses its uploads |
+| 2 GB | ~380 MB | completes; peak about 780 MB |
+
+So live retraining needs an instance with at least 1 GB (for example Render's
+2 GB plan). On the free tier, set `RETRAIN_ENABLED` to `"false"`: the Retrain
+page then explains that retraining is turned off on that host, and the API
+returns 503, instead of the service being killed mid-retrain. The full pipeline
+(upload → retrain → evaluate → promote) runs in the **containerised app locally**
+(`docker compose up`), which also carries the replay buffer and the held-out
+evaluation set.
+
+`render.yaml` is included for reproducible Render deployment.
+
+### Note on storage & cold starts
+
+Free-tier storage is **ephemeral**: uploaded images, the database, and retrained
+versions reset on restart/redeploy. This is acceptable for the demo — the base
+model is baked into the image, so prediction always works. Free instances also
+sleep when idle; the first request after inactivity takes 30–60 s.
+
+---
 
 ## Project structure
 
 ```
-src/
-  preprocessing.py     image preprocessing + the notebook's train/val/test split
-  model.py             load, freeze backbone, fine-tune, evaluate (metrics)
-  prediction.py        single-image / batch prediction (also a CLI)
-app/
-  main.py              FastAPI app, lifespan startup, routers
-  config.py            paths, UI metadata, retraining constants
-  routes/              predict, upload, retrain, rollback, insights
-  services/            model_service, retrain_service, registry
-  database/            SQLAlchemy engine + UploadedImage model
-  templates/ static/   Jinja2 pages + CSS
-data/
-  train/               replay buffer (seed images; not committed)
-  test/                held-out evaluation set (not committed)
-models/                exp5_base.keras (committed) + runtime versions
-notebook/              training + evaluation notebook
-loadtest/              Locust flood test, nginx config, results
-scripts/
-  prepare_data.py      build data/train (replay buffer) + data/test (eval set)
-  evaluate_model.py    measure a model on the held-out test split
-  pick_demo_images.py  held-out images the model grades correctly
-  compute_dataset_insights.py  per-grade image features for the Insights page
-  run_notebook_cells.py  run selected notebook cells without retraining
-tests/                 src, prediction, upload, base-model integrity
-Dockerfile  docker-compose.yml  render.yaml
+dr-detection-mlops/
+├── README.md
+├── notebook/
+│   └── diabetic_retinopathy_detection.ipynb   training, evaluation, Section 14
+├── src/
+│   ├── preprocessing.py     image preprocessing + the notebook's train/val/test split
+│   ├── model.py             load, freeze backbone, fine-tune, evaluate (metrics)
+│   └── prediction.py        single-image / batch prediction (also a CLI)
+├── data/
+│   ├── train/               replay buffer, 200 images (not committed)
+│   ├── test/                held-out evaluation set, 550 images (not committed)
+│   │                        + manifest.csv of their true grades (committed)
+│   └── uploads/             images uploaded in the app (not committed)
+├── models/
+│   ├── exp5_base.keras      the trained model (committed, never modified)
+│   └── baseline_metrics.json  its held-out metrics
+├── app/
+│   ├── main.py              FastAPI app, startup, routers
+│   ├── config.py            paths, retraining and promotion settings
+│   ├── routes/              predict, upload, retrain, rollback, insights, status
+│   ├── services/            model_service, retrain_service, promotion, registry,
+│   │                        pool, monitor
+│   ├── database/            SQLAlchemy engine + UploadedImage model
+│   ├── templates/           Jinja2 pages
+│   └── static/              CSS + data/dataset_insights.json
+├── scripts/
+│   ├── prepare_data.py              build data/train and data/test
+│   ├── evaluate_model.py            measure a model on the held-out test split
+│   ├── pick_demo_images.py          held-out images the model grades correctly
+│   ├── compute_dataset_insights.py  per-grade image features for Insights
+│   └── run_notebook_cells.py        run chosen notebook cells without retraining
+├── loadtest/                Locust flood test, nginx config, run scripts, results/
+├── tests/                   pytest suite
+├── Dockerfile  docker-compose.yml  render.yaml
+└── requirements.txt  requirements-dev.txt  pytest.ini
 ```
+
+At runtime `models/` also holds `exp5_current.keras` (the served copy),
+`versions/` (one file per retrain) and `model_registry.json`; none are committed.
+
+---
+
+## Tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest                    # 68 tests, about 30 s on a 4-core laptop
+pytest -m "not slow"      # skip the 3 end-to-end retraining runs
+```
+
+The suite covers preprocessing and the notebook's split, prediction and its CLI,
+the metrics (including Grade 3+4 recall), the backbone freeze, single, bulk and
+ZIP upload into both pools, training and evaluation data never mixing, the
+promotion gate, end-to-end retraining (promoted, rejected, and through the API)
+with the hot-swap, the retraining switch, uptime and status, the container
+header, admission control, the Insights data, and a **base-model integrity**
+check that the original weights are never modified. Each test run uses its own
+temporary database, uploads folder and model files. Tests that need APTOS
+images are skipped when `data/raw` or `tests/sample_images` is empty.
+
+---
 
 ## Known limitations
 
-- **Ephemeral hosted storage** — uploads/retrains reset on redeploy (free tier).
+- **Weak on the disease grades.** On the held-out images the model finds No DR
+  well (recall 0.89) but Mild (0.25), Moderate (0.39) and Proliferative (0.16)
+  poorly, and over-predicts Severe (0.62). Grade 3+4 recall of 0.390 is far
+  below what clinical screening needs.
+- **Acquisition bias in the data.** Healthy-eye photographs are mostly small and
+  square, disease photographs mostly large 4:3 images (see Dataset insights). The
+  model can use resolution as a shortcut, so its accuracy on images from other
+  cameras or clinics is unknown.
+- **Retraining only adjusts the classifier head.** The backbone stays frozen and
+  the pool is small, so a retrain can refine the model but not relearn it; the
+  example run gained 0.006 QWK.
 - **Live retraining** needs about 1 GB of memory (peak ~780 MB); on a 512 MB
   instance it is killed for running out of memory. Switch it off there with
   `RETRAIN_ENABLED=false`; the full pipeline runs locally via Docker.
-- **Grade 3+4 recall (0.390)** — the model under-detects sight-threatening DR,
-  especially Proliferative (recall 0.159), and confuses the middle grades (it
-  over-predicts Severe). A clinical deployment would require much higher
-  sensitivity on Grades 3 and 4.
+- **Ephemeral hosted storage** — uploads and retrained versions reset on
+  redeploy (free tier).
+- **Replicas and retraining.** A retrain runs inside one container, and its
+  progress and its lock live in that container's memory. Retrain with a single
+  replica: with several, the status page may poll a different container, and two
+  containers could retrain at the same time. Other replicas do switch to a newly
+  promoted model before their next prediction.
 - **APTOS images are not redistributed** (competition licensing); build the
   training pool and evaluation set from your own copy via
   `scripts/prepare_data.py`.
